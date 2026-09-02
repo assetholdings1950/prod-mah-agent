@@ -1,0 +1,223 @@
+@import "tailwindcss";
+
+:root {
+  /* Brand Colors */
+  --navy: #0B234A;
+  --navy-light: #15376B;
+  --platinum: #BFC5CD;
+  --silver: #D8DCE2;
+  --white: #FFFFFF;
+
+  /* Theme Colors */
+  --background: #FFFFFF;
+  --foreground: #0B234A;
+
+  /* Secondary Shades */
+  --muted: #eef2ff;
+  --border: #dbe4ff;
+  --card: #ffffff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  /* Brand Color Utilities */
+  --color-navy: var(--navy);
+  --color-navy-light: var(--navy-light);
+  --color-platinum: var(--platinum);
+  --color-silver: var(--silver);
+
+  /* UI */
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-card: var(--card);
+
+  /* Fonts */
+  --font-sans: var(--font-inter);
+  --font-heading: var(--font-cormorant);
+
+  /* Text */
+  --text-*: initial;
+  --text-xxs: 0.65rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --text-4xl: 2.25rem;
+  --text-5xl: 3rem;
+  --text-6xl: 3.75rem;
+  --text-7xl: 4.5rem;
+  --text-8xl: 6rem;
+  --text-9xl: 8rem;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+
+    font-family: var(--font-inter), sans-serif;
+    font-weight: 400;
+    line-height: 1.6;
+
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Premium Heading Style */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-cormorant), serif;
+    color: var(--navy);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  /* Selection */
+  ::selection {
+    background: var(--navy);
+    color: var(--white);
+  }
+}
+
+/* Optional Luxury Container */
+.container-premium {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding-inline: 2rem;
+}
+
+/* Custom premium classes for glassmorphic elements */
+.glass-card {
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 20px 40px -15px rgba(11, 35, 74, 0.2);
+}
+
+/* Backdrops */
+.bg-singapore {
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%), url('https://images.unsplash.com/photo-1565967511849-75a6fd7f9382?auto=format&fit=crop&w=1920&q=80');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.bg-watermark {
+  background-image: url('/assets/MAH.jpeg');
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+  mix-blend-mode: multiply;
+}
+
+/* Premium Animations and Interactive Effects */
+@keyframes float-slow {
+  0%, 100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.95);
+  }
+}
+
+@keyframes float-slower {
+  0%, 100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  50% {
+    transform: translate(-40px, 40px) scale(1.15);
+  }
+}
+
+.animate-float-slow {
+  animation: float-slow 15s ease-in-out infinite;
+}
+
+.animate-float-slower {
+  animation: float-slower 20s ease-in-out infinite;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes slide-in-left {
+  from { transform: translateX(-100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Smooth input styling */
+.premium-input {
+  @apply w-full bg-slate-50/50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-sm font-sans text-navy placeholder-slate-400 focus:bg-white focus:border-navy focus:outline-none focus:ring-4 focus:ring-navy/5 transition-all duration-300;
+}
+
+.premium-input-no-icon {
+  @apply w-full bg-slate-50/50 border border-slate-200 rounded-xl py-2.5 px-4 text-sm font-sans text-navy placeholder-slate-400 focus:bg-white focus:border-navy focus:outline-none focus:ring-4 focus:ring-navy/5 transition-all duration-300;
+}
+
+.premium-btn {
+  @apply w-full bg-navy hover:bg-navy-light text-white font-medium py-3 rounded-xl text-sm shadow-md hover:shadow-lg transition-all duration-300 flex items-center justify-center gap-2 mt-2 disabled:opacity-70 disabled:cursor-not-allowed hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99] cursor-pointer;
+}
+
+/* Custom subtle scrollbar */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
