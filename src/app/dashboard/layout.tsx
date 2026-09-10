@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import {
-  TrendingUp, Users, Layers, Wallet, LogOut, Copy, Check, Menu, X, Award, ShieldCheck, Mail, ChevronRight, Activity, User, Settings, ChevronDown
+  TrendingUp, Users, Layers, Wallet, LogOut, Copy, Check, Menu, X, Award, ShieldCheck, Mail, ChevronRight, Activity, User, Settings, ChevronDown, GitBranch
 } from "lucide-react";
 import { api, apiFetch, getTokens, setCurrentUser } from "../../utils/api";
 import { AgentContext } from "../../components/AgentContext";
@@ -128,6 +128,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const menuItems = [
     { name: "Dashboard Overview", href: "/dashboard", icon: TrendingUp },
     { name: "Referred Clients", href: "/dashboard/clients", icon: Users },
+    { name: "Referral Agents", href: "/dashboard/agent", icon: GitBranch },
     { name: "Compare Plans", href: "/dashboard/compare", icon: Layers },
     { name: "Payout Settlements", href: "/dashboard/payouts", icon: Wallet },
     { name: "My Profile", href: "/dashboard/profile", icon: User },
@@ -435,7 +436,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       Reach out for prompt assistance with KYC, commissions, or customer payouts.
                     </p>
                     <a
-                      href="mailto:admin@merlionassetholdings.com"
+                      href="mailto:support@merlionassetholdings.com"
                       className="flex items-center justify-center gap-1.5 w-full bg-white hover:bg-slate-100 text-navy font-bold text-center py-2 px-3 rounded-xl text-xs shadow transition duration-150 cursor-pointer"
                     >
                       <Mail size={13} className="text-navy shrink-0" />

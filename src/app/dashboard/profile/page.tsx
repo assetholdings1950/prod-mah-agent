@@ -475,7 +475,7 @@ export default function ProfilePage() {
 
           {/* Commission Summary */}
           <Section title="Commission Summary">
-            <DisplayRow label="Base Commission Rate"    value={`${(user.commissionPercentage ?? 2).toFixed(1)}%`} />
+            <DisplayRow label="Current Commission Tier"  value={`${(user.commissionPercentage ?? 2).toFixed(1)}%`} />
             <DisplayRow label="Total Earned (Lifetime)" value={currency(user.totalCommissionEarned, user.preferredCurrency)} />
             <DisplayRow label="Pending Approval"        value={currency(user.pendingCommission,       user.preferredCurrency)} />
             <DisplayRow label="Available Balance"       value={currency(user.availableCommissionBalance, user.preferredCurrency)} />

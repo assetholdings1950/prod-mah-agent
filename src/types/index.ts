@@ -61,6 +61,28 @@ export interface Agent {
   salesThisMonth?: number;
 }
 
+// ─── Referred agent (downline) ─────────────────────────────────────────────
+// Returned by GET /agent/me/referred-agents — agents the logged-in agent has
+// personally referred. `totalClients`/`activeClients` are that downline agent's
+// own client book (referred + managed).
+export interface ReferredAgent {
+  _id: string;
+  agentId?: string;
+  firstName?: string;
+  lastName?: string;
+  fullName?: string;
+  email?: string;
+  referralCode?: string;
+  profileImage?: string;
+  agentLevel?: AgentLevel | string;
+  status?: string;
+  kycStatus?: KycStatus | string;
+  joiningDate?: string;
+  createdAt?: string;
+  totalClients?: number;
+  activeClients?: number;
+}
+
 // ─── Client (referred investor) ────────────────────────────────────────────
 export interface Client {
   _id: string;
@@ -92,6 +114,11 @@ export interface Client {
   totalDeposits?: number;
   totalWithdrawals?: number;
   createdAt?: string;
+  agent?: string | { _id?: string } | null;
+  accountManager?: string | { _id?: string; fullName?: string } | null;
+  // Set by the backend on the agent directory list: how this client relates to
+  // the logged-in agent — "referred", "managed" (admin-assigned), or "both".
+  relationship?: "referred" | "managed" | "both";
 }
 
 // ─── Investment plan ───────────────────────────────────────────────────────

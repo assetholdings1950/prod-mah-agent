@@ -8,6 +8,7 @@ import type {
   LedgerWallet,
   Paginated,
   Portfolio,
+  ReferredAgent,
   Wallet,
   Withdrawal,
 } from "@/types";
@@ -208,6 +209,13 @@ export interface RegisterClientPayload {
   referralCode?: string;
 }
 
+export interface ReferAgentPayload {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+}
+
 // Auth API Methods
 export const api = {
   // Sign In / Login
@@ -366,6 +374,26 @@ export const api = {
 
   getClientDetails: async (clientId: string) => {
     return await apiFetch<{ data?: Client }>(`/clients/${clientId}`);
+  },
+
+  // ─── Referral agents (agent refers another agent) ──────────────────────────
+  // The backend forces the sponsor to the logged-in agent, so no referral code
+  // is sent — the new agent is linked to the caller automatically.
+  referAgent: async ({ firstName, lastName, email, password }: ReferAgentPayload) => {
+    return await apiFetch<{ agent?: ReferredAgent }>("/agent/refer", {
+      method: "POST",
+      body: JSON.stringify({ firstName, lastName, email, password }),
+    });
+  },
+
+  getReferredAgents: async ({ page = 1, limit = 50, search }: ListParams = {}) => {
+    const q = new URLSearchParams();
+    q.set("page", String(page));
+    q.set("limit", String(limit));
+    if (search) q.set("search", search);
+    return await apiFetch<{ agents?: Paginated<ReferredAgent> }>(
+      `/agent/me/referred-agents?${q.toString()}`,
+    );
   },
 
   updateClient: async (payload: Record<string, unknown>) => {

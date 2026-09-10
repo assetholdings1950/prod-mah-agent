@@ -10,6 +10,20 @@ import { api, apiFetch } from "../../../utils/api";
 import { toastSuccess, toastError, toastLoading, toastUpdate } from "../../../utils/toast-message/taost-message";
 import type { Client, LedgerWallet, Wallet as WalletType } from "@/types";
 
+function RelationshipBadge({ relationship }: { relationship?: Client["relationship"] }) {
+  const map = {
+    referred: { label: "Referred", cls: "bg-slate-50 text-slate-600 border-slate-200" },
+    managed: { label: "Managed", cls: "bg-violet-50 text-violet-700 border-violet-100" },
+    both: { label: "Referred + Managed", cls: "bg-sky-50 text-sky-700 border-sky-100" },
+  } as const;
+  const meta = map[relationship ?? "referred"] ?? map.referred;
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold border uppercase tracking-wider ${meta.cls}`}>
+      {meta.label}
+    </span>
+  );
+}
+
 export default function ClientsPage() {
   const { user, refreshProfile } = useAgent();
   
@@ -142,7 +156,7 @@ export default function ClientsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-heading font-extrabold text-navy">Client Directory</h1>
-          <p className="text-xs text-navy-light/50">Manage your referred investor accounts and track portfolio volume.</p>
+          <p className="text-xs text-navy-light/50">Investors you referred and clients assigned to you as Account Manager.</p>
         </div>
 
         <button
@@ -213,7 +227,7 @@ export default function ClientsPage() {
           ) : clients.length === 0 ? (
             <div className="py-16 text-center text-slate-400 font-light px-4">
               <Users size={32} className="mx-auto text-slate-300 mb-2" />
-              <p className="text-xs">No investors linked to your referral code.</p>
+              <p className="text-xs">No investors linked to your referral code or assigned to you.</p>
             </div>
           ) : (
             <>
@@ -224,6 +238,7 @@ export default function ClientsPage() {
                     <tr className="bg-slate-50/60 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider text-[9px]">
                       <th className="py-3 px-5">Investor Name</th>
                       <th className="py-3 px-5">Email Address</th>
+                      <th className="py-3 px-5">Relationship</th>
                       <th className="py-3 px-5">Capital Invested</th>
                       <th className="py-3 px-5">KYC Status</th>
                       <th className="py-3 px-5">Account Status</th>
@@ -255,7 +270,12 @@ export default function ClientsPage() {
                           
                           {/* Email */}
                           <td className="py-3.5 px-5 text-slate-600 font-normal">{c.email}</td>
-                          
+
+                          {/* Relationship */}
+                          <td className="py-3.5 px-5">
+                            <RelationshipBadge relationship={c.relationship} />
+                          </td>
+
                           {/* Portfolio Capital */}
                           <td className="py-3.5 px-5 font-bold text-navy">
                             {(c.portfolioValue ?? 0) > 0 ? (
@@ -356,6 +376,7 @@ export default function ClientsPage() {
                           <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[8px] font-bold border uppercase tracking-wider ${kycTone}`}>
                             KYC: {(c.kycStatus ?? "pending").replace("_", " ")}
                           </span>
+                          <RelationshipBadge relationship={c.relationship} />
                         </div>
                       </div>
 

@@ -8,8 +8,16 @@ import {
   Receipt, TrendingUp, ChevronLeft, ChevronDown, Loader2, ZoomIn, X, AlertCircle, Camera
 } from "lucide-react";
 import { api } from "../../../../utils/api";
+import { useAgent } from "../../../../components/AgentContext";
 import { toastError, toastSuccess } from "../../../../utils/toast-message/taost-message";
 import type { BankDetail, Client, ClientTransaction, LedgerWallet, Portfolio, Wallet as WalletType } from "@/types";
+
+const idOf = (v: unknown): string => {
+  if (!v) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "object" && v !== null && "_id" in v) return String((v as { _id?: unknown })._id ?? "");
+  return "";
+};
 
 // Tab configurations mirroring admin
 const TABS = [
@@ -30,6 +38,7 @@ export default function ClientProfilePage() {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
+  const { user } = useAgent();
   const clientId = String(params.clientId ?? "");
 
   const rawTab = searchParams.get("tab");
@@ -211,17 +220,20 @@ export default function ClientProfilePage() {
     if (!client) return;
     setSaving(true);
     try {
-      const { kycRemarks, kycVerification, ...rest } = formState;
-      const res = await api.updateClient({
-        _id: client._id,
-        ...rest,
-        kycVerification: {
+      const { kycRemarks, kycVerification, status, kycStatus, isKycRequired, ...rest } = formState;
+      const payload: Record<string, unknown> = { _id: client._id, ...rest };
+      if (canEditCompliance) {
+        payload.status = status;
+        payload.kycStatus = kycStatus;
+        payload.isKycRequired = isKycRequired;
+        payload.kycVerification = {
           ...client.kycVerification,
           ...kycVerification,
           remarks: kycRemarks,
           verifiedAt: new Date().toISOString(),
-        },
-      });
+        };
+      }
+      const res = await api.updateClient(payload);
       if (res && res.status) {
         setClient(res.client || res.data || client);
         setIsEditing(false);
@@ -383,6 +395,14 @@ export default function ClientProfilePage() {
   const initials = `${client.firstName?.charAt(0) || ""}${client.lastName?.charAt(0) || ""}`.toUpperCase();
   const rawPhoto = (isEditing ? formState.profileImage : null) || client.profileImage || client.kycVerification?.liveSelfie || null;
   const displayPhotoUrl = resolveImageUrl(rawPhoto);
+
+  // An agent assigned only as Account Manager (not the referring agent) can
+  // maintain the profile but not the client's compliance state. The backend
+  // enforces this too; here we just hide the controls.
+  const myId = idOf(user?._id);
+  const isReferrer = !!myId && idOf(client.agent) === myId;
+  const isManagerOnly = !!myId && !isReferrer && idOf(client.accountManager) === myId;
+  const canEditCompliance = !isManagerOnly;
 
   return (
     <div className="space-y-6 font-sans animate-fade-in text-navy">
@@ -600,17 +620,21 @@ export default function ClientProfilePage() {
           {activeTab === "account" && (
             isEditing ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                <EditField
-                  label="Account Lifecycle Status"
-                  value={formState.status}
-                  onChange={(val) => setFormState(prev => ({ ...prev, status: val }))}
-                  options={[
-                    { value: "pending", label: "Pending" },
-                    { value: "active", label: "Active" },
-                    { value: "suspended", label: "Suspended" },
-                    { value: "closed", label: "Closed" }
-                  ]}
-                />
+                {canEditCompliance ? (
+                  <EditField
+                    label="Account Lifecycle Status"
+                    value={formState.status}
+                    onChange={(val) => setFormState(prev => ({ ...prev, status: val }))}
+                    options={[
+                      { value: "pending", label: "Pending" },
+                      { value: "active", label: "Active" },
+                      { value: "suspended", label: "Suspended" },
+                      { value: "closed", label: "Closed" }
+                    ]}
+                  />
+                ) : (
+                  <ProfileField label="Account Lifecycle Status" value={client.status} className="capitalize" />
+                )}
                 <EditField
                   label="Risk Profile Setting"
                   value={formState.riskProfile}
@@ -631,15 +655,19 @@ export default function ClientProfilePage() {
                     { value: "GBP", label: "GBP" }
                   ]}
                 />
-                <EditField
-                  label="KYC Enforced Status"
-                  value={formState.isKycRequired ? "true" : "false"}
-                  onChange={(val) => setFormState(prev => ({ ...prev, isKycRequired: val === "true" }))}
-                  options={[
-                    { value: "true", label: "Enforced & Mandated" },
-                    { value: "false", label: "Bypassed / Optional" }
-                  ]}
-                />
+                {canEditCompliance ? (
+                  <EditField
+                    label="KYC Enforced Status"
+                    value={formState.isKycRequired ? "true" : "false"}
+                    onChange={(val) => setFormState(prev => ({ ...prev, isKycRequired: val === "true" }))}
+                    options={[
+                      { value: "true", label: "Enforced & Mandated" },
+                      { value: "false", label: "Bypassed / Optional" }
+                    ]}
+                  />
+                ) : (
+                  <ProfileField label="KYC Enforced Status" value={client.isKycRequired ? "Enforced & Mandated" : "Bypassed / Optional"} />
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -653,7 +681,7 @@ export default function ClientProfilePage() {
 
           {/* TAB 4: KYC DETAILS */}
           {activeTab === "kyc" && (
-            isEditing ? (
+            isEditing && canEditCompliance ? (
               <div className="space-y-6">
                 <div>
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Identity Document Proof</p>
@@ -724,17 +752,21 @@ export default function ClientProfilePage() {
                 <div className="pt-4 border-t border-slate-100">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">KYC Audit Trail</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                    <EditField
-                      label="Current KYC Status"
-                      value={formState.kycStatus}
-                      onChange={(val) => setFormState(prev => ({ ...prev, kycStatus: val }))}
-                      options={[
-                        { value: "pending", label: "Pending" },
-                        { value: "under_review", label: "Under Review" },
-                        { value: "approved", label: "Approved" },
-                        { value: "rejected", label: "Rejected" }
-                      ]}
-                    />
+                    {canEditCompliance ? (
+                      <EditField
+                        label="Current KYC Status"
+                        value={formState.kycStatus}
+                        onChange={(val) => setFormState(prev => ({ ...prev, kycStatus: val }))}
+                        options={[
+                          { value: "pending", label: "Pending" },
+                          { value: "under_review", label: "Under Review" },
+                          { value: "approved", label: "Approved" },
+                          { value: "rejected", label: "Rejected" }
+                        ]}
+                      />
+                    ) : (
+                      <ProfileField label="Current KYC Status" value={client.kycStatus} className="capitalize" />
+                    )}
                     <EditField
                       label="Audit Remarks / Review Notes"
                       value={formState.kycRemarks}
@@ -746,6 +778,11 @@ export default function ClientProfilePage() {
               </div>
             ) : (
               <div className="space-y-6">
+                {isEditing && isManagerOnly && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-[11px] font-semibold text-amber-800">
+                    KYC verification is handled by the referring agent and administrators. You have read-only access to this section.
+                  </div>
+                )}
                 <div>
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Identity Document Proof</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
