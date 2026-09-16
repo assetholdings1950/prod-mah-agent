@@ -408,8 +408,8 @@ export default function TeamPage() {
                   </div>
                 </label>
 
-                <label>
-                  <span className={labelClass}>Password *</span>
+                <label className="block pt-2">
+                  <span className={`${labelClass} mt-1 block`}>Password *</span>
                   <div className="relative">
                     <LockKeyhole className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                     <input
@@ -434,11 +434,11 @@ export default function TeamPage() {
                 </label>
 
                 {/* Referral node info — sponsor is forced to the logged-in agent */}
-                <div className="bg-sky-50 border border-sky-100 rounded-xl p-3 flex items-start gap-2.5 text-[10px] text-sky-900">
-                  <ShieldCheck size={14} className="text-sky-600 shrink-0 mt-0.5" />
+                <div className="bg-sky-50 border border-sky-100 rounded-xl p-3 flex items-start gap-2.5 text-[10px] text-sky-900 mt-6">
+                  <ShieldCheck size={14} className="text-sky-600 shrink-0 mt-1" />
                   <div>
-                    <span className="font-bold">Linked to your referral network</span>
-                    <p className="font-light mt-0.5">
+                    <span className="font-bold block pt-0.5">Linked to your referral network</span>
+                    <p className="font-light mt-1">
                       This agent is created under your referral code
                       {user?.referralCode ? <strong> {user.referralCode}</strong> : ""}. They receive their own
                       referral code to share, and admins will see you listed as their sponsor. Commission is

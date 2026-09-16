@@ -425,6 +425,7 @@ export const api = {
     q.set("clientId", clientId);
     if (params.page) q.set("page", String(params.page));
     if (params.limit) q.set("limit", String(params.limit));
+    if (params.status && params.status !== "all") q.set("status", params.status);
     return await apiFetch<{ portfolios?: Portfolio[]; data?: Paginated<Portfolio> }>(
       `/portfolio/admin/list?${q.toString()}`,
     );

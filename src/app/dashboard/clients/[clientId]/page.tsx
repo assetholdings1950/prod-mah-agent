@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   User, Phone, Settings, ShieldCheck, Landmark, Wallet, BarChart3, FileText,
-  Receipt, TrendingUp, ChevronLeft, ChevronDown, Loader2, ZoomIn, X, AlertCircle, Camera
+  Receipt, TrendingUp, ChevronLeft, ChevronDown, ChevronRight, Loader2, ZoomIn, X, AlertCircle, Camera, CheckCircle2, RefreshCw, MessageSquare, Send
 } from "lucide-react";
-import { api } from "../../../../utils/api";
+import { api, apiFetch } from "../../../../utils/api";
 import { useAgent } from "../../../../components/AgentContext";
 import { toastError, toastSuccess } from "../../../../utils/toast-message/taost-message";
 import type { BankDetail, Client, ClientTransaction, LedgerWallet, Portfolio, Wallet as WalletType } from "@/types";
@@ -29,6 +29,7 @@ const TABS = [
   { key: "wallets", label: "Withdrawal Wallets", icon: <Wallet size={14} /> },
   { key: "financial", label: "Financial Overview", icon: <BarChart3 size={14} /> },
   { key: "notes", label: "Notes", icon: <FileText size={14} /> },
+  { key: "chat", label: "Client Support Chat", icon: <MessageSquare size={14} /> },
   { key: "transactions", label: "Transaction History", icon: <Receipt size={14} /> },
   { key: "balance", label: "Fund Balance", icon: <Wallet size={14} /> },
   { key: "portfolio", label: "Portfolios", icon: <TrendingUp size={14} /> },
@@ -99,6 +100,8 @@ export default function ClientProfilePage() {
   const [loadingLedgers, setLoadingLedgers] = useState(false);
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [loadingPortfolios, setLoadingPortfolios] = useState(false);
+  const [expandedPortfolioId, setExpandedPortfolioId] = useState<string | null>(null);
+  const [portfolioStatusFilter, setPortfolioStatusFilter] = useState<string>("all");
 
   const fetchBanks = useCallback(async () => {
     if (!clientId) return;
@@ -127,6 +130,25 @@ export default function ClientProfilePage() {
       console.error("Failed to load wallets:", err);
     } finally {
       setLoadingWallets(false);
+    }
+  }, [clientId]);
+
+  const fetchPortfolios = useCallback(async () => {
+    if (!clientId) return;
+    setLoadingPortfolios(true);
+    try {
+      const res = await api.getClientPortfolios(clientId);
+      if (res && res.status) {
+        setPortfolios(res.portfolios || res.data?.docs || []);
+      } else {
+        setPortfolios([]);
+        if (res?.message) toastError(res.message);
+      }
+    } catch (err) {
+      console.error("Failed to load portfolios:", err);
+      toastError("Failed to load portfolios.");
+    } finally {
+      setLoadingPortfolios(false);
     }
   }, [clientId]);
 
@@ -204,17 +226,13 @@ export default function ClientProfilePage() {
         .catch(() => toastError("Failed to load active balances."))
         .finally(() => setLoadingLedgers(false));
     } else if (activeTab === "portfolio") {
-      setLoadingPortfolios(true);
-      api.getClientPortfolios(clientId)
-        .then(res => setPortfolios(res.portfolios || res.data?.docs || []))
-        .catch(() => toastError("Failed to load portfolios."))
-        .finally(() => setLoadingPortfolios(false));
+      fetchPortfolios();
     } else if (activeTab === "bank") {
       fetchBanks();
     } else if (activeTab === "wallets") {
       fetchWallets();
     }
-  }, [clientId, activeTab, fetchBanks, fetchWallets]);
+  }, [clientId, activeTab, fetchBanks, fetchWallets, fetchPortfolios]);
 
   const handleSave = async () => {
     if (!client) return;
@@ -488,7 +506,25 @@ export default function ClientProfilePage() {
         </div>
 
         <div>
-          <h2 className="text-lg font-extrabold text-navy leading-tight">{client.firstName} {client.lastName}</h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-lg font-extrabold text-navy leading-tight">{client.firstName} {client.lastName}</h2>
+            {(() => {
+              const isRef = client && client.agent && (idOf(client.agent) === user?._id || client.agent === user?._id);
+              const isMng = client && client.accountManager && (idOf(client.accountManager) === user?._id || client.accountManager === user?._id);
+              const rel = (client as any).relationship || (isRef && isMng ? "both" : isMng ? "managed" : isRef ? "referred" : null);
+              if (!rel) return null;
+              const meta = {
+                referred: { label: "Referred Client", cls: "bg-slate-100 text-slate-700 border-slate-200" },
+                managed: { label: "Managed Client (Account Manager)", cls: "bg-violet-50 text-violet-700 border-violet-200" },
+                both: { label: "Referred & Managed", cls: "bg-sky-50 text-sky-700 border-sky-200" }
+              }[rel as "referred" | "managed" | "both"] || { label: "Client", cls: "bg-slate-100 text-slate-700 border-slate-200" };
+              return (
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${meta.cls}`}>
+                  {meta.label}
+                </span>
+              );
+            })()}
+          </div>
           <p className="text-xs text-navy-light/60 font-semibold mt-0.5">{client.email}</p>
         </div>
         <div className="sm:ml-auto flex flex-col items-end gap-1.5">
@@ -1260,54 +1296,292 @@ export default function ClientProfilePage() {
           )}
 
           {/* TAB 11: PORTFOLIOS */}
-          {activeTab === "portfolio" && (
-            <div className="overflow-x-auto">
-              {loadingPortfolios ? (
-                <div className="py-12 text-center">
-                  <Loader2 className="animate-spin text-navy/40 mx-auto mb-2" size={24} />
-                  <span className="text-xs text-slate-400 font-semibold">Loading portfolios...</span>
+          {activeTab === "portfolio" && (() => {
+            const totalPortfoliosCount = portfolios.length;
+            const activePortfoliosCount = portfolios.filter(p => p.status === "active").length;
+            const totalInvestedUsd = portfolios.reduce((acc, p) => acc + (p.summary?.totalInvestedUsd || p.amountUsd || p.initialAmount || 0), 0);
+            const totalCurrentValueUsd = portfolios.reduce((acc, p) => acc + (p.summary?.currentValueUsd || p.amountUsd || p.initialAmount || 0), 0);
+            const expectedTotalMaturityUsd = portfolios.reduce((acc, p) => acc + (p.summary?.expectedMaturityValueUsd || p.maturityPayout || 0), 0);
+
+            const PORTFOLIO_STATUSES = ["all", "active", "paused", "matured", "closed", "cancelled"];
+            const filteredPortfolios = portfolioStatusFilter === "all"
+              ? portfolios
+              : portfolios.filter(p => p.status?.toLowerCase() === portfolioStatusFilter);
+
+            return (
+              <div className="space-y-5">
+                {/* Summary Metric Cards mirroring Admin */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 shadow-sm">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider block">Total Portfolios</span>
+                    <span className="text-xl font-extrabold text-navy mt-1 block">{totalPortfoliosCount}</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 shadow-sm">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider block">Active</span>
+                    <span className="text-xl font-extrabold text-emerald-600 mt-1 block">{activePortfoliosCount}</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 shadow-sm">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider block">Total Invested</span>
+                    <span className="text-xl font-extrabold text-navy mt-1 block">
+                      {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalInvestedUsd)}
+                    </span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 shadow-sm">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider block">Current Value</span>
+                    <span className="text-xl font-extrabold text-navy mt-1 block">
+                      {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalCurrentValueUsd)}
+                    </span>
+                  </div>
                 </div>
-              ) : portfolios.length === 0 ? (
-                <p className="text-center text-slate-400 py-12 text-xs italic font-semibold">No active investment portfolios found.</p>
-              ) : (
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-slate-50/50 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider text-[9px]">
-                      <th className="py-2.5 px-4">Portfolio ID</th>
-                      <th className="py-2.5 px-4">Plan Name</th>
-                      <th className="py-2.5 px-4">Initial Investment</th>
-                      <th className="py-2.5 px-4">Expected Maturity</th>
-                      <th className="py-2.5 px-4">ROI Rate</th>
-                      <th className="py-2.5 px-4">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50 font-medium">
-                    {portfolios.map((p) => {
-                      const tone = 
-                        p.status === "active" ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
-                        p.status === "pending" || p.status === "claimed" ? "bg-sky-50 text-sky-700 border-sky-100" : "bg-slate-100 text-slate-500 border-slate-200";
-                      
+
+                {/* Expected Total Maturity Value Banner */}
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 flex items-center justify-between shadow-sm">
+                  <span className="text-xs font-bold text-slate-600">Expected Total Maturity Value</span>
+                  <span className="text-lg font-extrabold text-navy">
+                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(expectedTotalMaturityUsd)}
+                  </span>
+                </div>
+
+                {/* Filter Tabs and Actions Bar */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                  <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-1">
+                    {PORTFOLIO_STATUSES.map((statusKey) => {
+                      const isSelected = portfolioStatusFilter === statusKey;
                       return (
-                        <tr key={p._id} className="hover:bg-slate-50/20">
-                          <td className="py-3 px-4 font-mono font-bold text-navy tracking-tight">{p.portfolioId}</td>
-                          <td className="py-3 px-4 font-bold text-navy capitalize">{p.planSnapshot?.name || p.planName || p.planId?.name || "Active Plan"}</td>
-                          <td className="py-3 px-4 font-bold">
-                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: p.currency || "USD" }).format(p.initialAmount || p.amountUsd || 0)}
-                          </td>
-                          <td className="py-3 px-4">
-                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: p.currency || "USD" }).format(p.maturityPayout || 0)}
-                          </td>
-                          <td className="py-3 px-4 text-emerald-600 font-bold">{p.roiPercentage || p.roiMin || 0}% p.a.</td>
-                          <td className="py-3 px-4 capitalize">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold border ${tone}`}>{p.status}</span>
-                          </td>
-                        </tr>
+                        <button
+                          key={statusKey}
+                          onClick={() => setPortfolioStatusFilter(statusKey)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold capitalize transition cursor-pointer ${
+                            isSelected
+                              ? "bg-navy text-white shadow-sm"
+                              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                          }`}
+                        >
+                          {statusKey === "all" ? "All" : statusKey}
+                        </button>
                       );
                     })}
-                  </tbody>
-                </table>
-              )}
-            </div>
+                  </div>
+
+                  <button
+                    onClick={fetchPortfolios}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-navy px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 transition cursor-pointer"
+                    title="Refresh Portfolios"
+                  >
+                    <RefreshCw size={13} className={loadingPortfolios ? "animate-spin text-navy" : ""} />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+
+                {/* Portfolios List */}
+                {loadingPortfolios ? (
+                  <div className="py-16 text-center">
+                    <Loader2 className="animate-spin text-navy/40 mx-auto mb-2" size={24} />
+                    <span className="text-xs text-slate-400 font-semibold">Loading portfolios...</span>
+                  </div>
+                ) : filteredPortfolios.length === 0 ? (
+                  <div className="py-16 text-center bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+                    <TrendingUp className="mx-auto text-slate-300 mb-2 opacity-50" size={32} />
+                    <p className="text-xs text-slate-400 italic font-semibold">
+                      {portfolioStatusFilter === "all"
+                        ? "No investment portfolios found for this client."
+                        : `No ${portfolioStatusFilter} investment portfolios found.`}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {filteredPortfolios.map((p) => {
+                      const isExpanded = expandedPortfolioId === p._id;
+                      const statusTone =
+                        p.status === "active" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                        p.status === "paused" ? "bg-amber-50 text-amber-700 border-amber-200" :
+                        p.status === "matured" ? "bg-blue-50 text-blue-700 border-blue-200" :
+                        p.status === "closed" ? "bg-slate-100 text-slate-600 border-slate-200" :
+                        "bg-rose-50 text-rose-700 border-rose-200";
+
+                      const dotColor =
+                        p.status === "active" ? "bg-emerald-500" :
+                        p.status === "paused" ? "bg-amber-500" :
+                        p.status === "matured" ? "bg-blue-500" :
+                        p.status === "closed" ? "bg-slate-400" : "bg-rose-500";
+
+                      const planName = p.planSnapshot?.name || p.planName || p.planId?.name || "Global Digital Index Fund";
+                      const investedAmount = p.amountUsd || p.summary?.totalInvestedUsd || p.initialAmount || 0;
+                      const maturityDateFormatted = p.maturityDate ? new Date(p.maturityDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+                      const startDateFormatted = p.startedAt ? new Date(p.startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : (p.createdAt ? new Date(p.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—");
+                      const roiMin = p.planSnapshot?.roiMin ?? p.roiPercentage ?? p.roiMin ?? 0;
+                      const roiMax = p.planSnapshot?.roiMax;
+                      const roiLabel = roiMax && roiMax !== roiMin ? `${roiMin}% – ${roiMax}% p.a.` : `${roiMin}% p.a.`;
+
+                      return (
+                        <div
+                          key={p._id}
+                          className={`rounded-2xl border transition-all overflow-hidden ${
+                            isExpanded ? "border-navy/30 shadow-md bg-white" : "border-slate-200/80 bg-white hover:border-slate-300"
+                          }`}
+                        >
+                          {/* Row Header */}
+                          <button
+                            type="button"
+                            onClick={() => setExpandedPortfolioId(isExpanded ? null : p._id)}
+                            className="w-full flex items-center gap-3 px-4 py-3.5 text-left cursor-pointer"
+                          >
+                            <span className="shrink-0 text-slate-400 transition-transform">
+                              {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                            </span>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className={`h-2 w-2 rounded-full ${dotColor}`} />
+                              <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 text-slate-600">
+                                <TrendingUp size={15} />
+                              </div>
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-extrabold text-navy truncate">{planName}</p>
+                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                <span className="font-mono text-[9px] text-slate-400 font-bold bg-slate-100 px-1.5 py-0.5 rounded">{p.portfolioId}</span>
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 uppercase tracking-wider">{p.investmentMode || "lumpsum"}</span>
+                                {p.planSnapshot?.riskLevel && (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100 capitalize">
+                                    {p.planSnapshot.riskLevel.replace("_", " ")} Risk
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="text-right shrink-0 hidden sm:block">
+                              <p className="text-xs font-extrabold text-navy">
+                                {new Intl.NumberFormat('en-US', { style: 'currency', currency: p.currency || "USD" }).format(investedAmount)}
+                              </p>
+                              {p.durationMonths && <p className="text-[10px] text-slate-400">{p.durationMonths} mo</p>}
+                            </div>
+
+                            <span className={`shrink-0 inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full border capitalize ${statusTone}`}>
+                              <CheckCircle2 size={10} />
+                              {p.status}
+                            </span>
+
+                            <div className="shrink-0 hidden md:block text-right min-w-[90px]">
+                              <p className="text-[9px] text-slate-400 uppercase font-bold">Matures</p>
+                              <p className="text-[11px] font-semibold text-slate-600">{maturityDateFormatted}</p>
+                            </div>
+                          </button>
+
+                          {/* Expanded Details Section */}
+                          {isExpanded && (
+                            <div className="border-t border-slate-100 bg-slate-50/50 p-4 sm:p-5 space-y-4 text-xs">
+                              {/* Summary Grid */}
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-sm">
+                                  <span className="text-[9px] font-bold uppercase text-slate-400 block">Total Invested</span>
+                                  <span className="text-sm font-extrabold text-navy mt-0.5 block">
+                                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: p.currency || "USD" }).format(p.summary?.totalInvestedUsd || investedAmount)}
+                                  </span>
+                                </div>
+                                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-sm">
+                                  <span className="text-[9px] font-bold uppercase text-slate-400 block">Expected Profit</span>
+                                  <span className="text-sm font-extrabold text-emerald-600 mt-0.5 block">
+                                    +{new Intl.NumberFormat('en-US', { style: 'currency', currency: p.currency || "USD" }).format(p.summary?.totalExpectedProfitUsd || 0)}
+                                  </span>
+                                  <span className="text-[9px] text-slate-400 mt-0.5 block">{roiLabel}</span>
+                                </div>
+                                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-sm">
+                                  <span className="text-[9px] font-bold uppercase text-slate-400 block">Current Value</span>
+                                  <span className="text-sm font-extrabold text-navy mt-0.5 block">
+                                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: p.currency || "USD" }).format(p.summary?.currentValueUsd || investedAmount)}
+                                  </span>
+                                </div>
+                                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-sm">
+                                  <span className="text-[9px] font-bold uppercase text-slate-400 block">Maturity Value</span>
+                                  <span className="text-sm font-extrabold text-navy mt-0.5 block">
+                                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: p.currency || "USD" }).format(p.summary?.expectedMaturityValueUsd || p.maturityPayout || 0)}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Plan & Payment Details Two-Column Grid */}
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {/* Plan Details */}
+                                <div className="bg-white border border-slate-200/80 rounded-xl p-4 shadow-sm space-y-2.5">
+                                  <h4 className="text-[11px] font-extrabold text-navy uppercase tracking-wider border-b border-slate-100 pb-2">Plan Details</h4>
+                                  <div className="flex justify-between items-center text-xs">
+                                    <span className="text-slate-500">Plan Type</span>
+                                    <span className="font-bold text-navy capitalize">{p.planSnapshot?.category || p.investmentMode || "—"}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-xs">
+                                    <span className="text-slate-500">Expected ROI</span>
+                                    <span className="font-bold text-emerald-600">{roiLabel}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-xs">
+                                    <span className="text-slate-500">Payout Type</span>
+                                    <span className="font-bold text-navy capitalize">{p.planSnapshot?.payoutType || "Monthly"}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-xs">
+                                    <span className="text-slate-500">Start Date</span>
+                                    <span className="font-medium text-slate-700">{startDateFormatted}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-xs">
+                                    <span className="text-slate-500">Maturity Date</span>
+                                    <span className="font-medium text-slate-700">{maturityDateFormatted}</span>
+                                  </div>
+                                  {p.planSnapshot?.lockInMonths && (
+                                    <div className="flex justify-between items-center text-xs">
+                                      <span className="text-slate-500">Lock-In Period</span>
+                                      <span className="font-medium text-slate-700">{p.planSnapshot.lockInMonths} Months</span>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Payment Details */}
+                                <div className="bg-white border border-slate-200/80 rounded-xl p-4 shadow-sm space-y-2.5">
+                                  <h4 className="text-[11px] font-extrabold text-navy uppercase tracking-wider border-b border-slate-100 pb-2">Payment Details</h4>
+                                  <div className="flex justify-between items-center text-xs">
+                                    <span className="text-slate-500">Paid Currency</span>
+                                    <span className="font-bold text-navy uppercase">{p.paidFromWallet?.currency || p.currency || "USD"}</span>
+                                  </div>
+                                  {p.paidFromWallet?.amount && (
+                                    <div className="flex justify-between items-center text-xs">
+                                      <span className="text-slate-500">Amount Paid</span>
+                                      <span className="font-bold text-navy font-mono">{p.paidFromWallet.amount} {p.paidFromWallet.currency}</span>
+                                    </div>
+                                  )}
+                                  {p.paidFromWallet?.rate && (
+                                    <div className="flex justify-between items-center text-xs">
+                                      <span className="text-slate-500">Exchange Rate</span>
+                                      <span className="font-mono text-slate-700">1 USD = {p.paidFromWallet.rate} {p.paidFromWallet.currency}</span>
+                                    </div>
+                                  )}
+                                  <div className="flex justify-between items-center text-xs">
+                                    <span className="text-slate-500">Base Investment</span>
+                                    <span className="font-bold text-navy font-mono">
+                                      {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(investedAmount)}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-xs">
+                                    <span className="text-slate-500">Duration</span>
+                                    <span className="font-medium text-slate-700">{p.durationMonths || 12} Months</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* TAB: CLIENT SUPPORT CHAT */}
+          {activeTab === "chat" && (
+            <AgentClientChatTab
+              clientId={clientId || ""}
+              agentId={user?._id || ""}
+              clientName={`${client.firstName || ""} ${client.lastName || ""}`.trim() || client?.email || "Client"}
+            />
           )}
 
         </div>
@@ -1469,6 +1743,146 @@ function FileUploadField({ label, value, onChange, accept = "image/*" }: { label
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Sub-Component: Agent Client Support Chat Tab
+function AgentClientChatTab({ clientId, agentId, clientName }: { clientId: string; agentId: string; clientName: string }) {
+  const [messages, setMessages] = useState<any[]>([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const fetchMessages = useCallback(async (showLoading = false) => {
+    if (showLoading) setLoading(true);
+    try {
+      const res = await apiFetch<any[]>(`/chat/messages?clientId=${clientId}&agentId=${agentId}`);
+      if (res.status && Array.isArray(res.data)) {
+        setMessages(res.data);
+      }
+    } catch (e) {
+      console.error("Error fetching client chat:", e);
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  }, [clientId, agentId]);
+
+  useEffect(() => {
+    fetchMessages(true);
+    const interval = setInterval(() => fetchMessages(false), 4000);
+    return () => clearInterval(interval);
+  }, [fetchMessages]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || sending) return;
+    setSending(true);
+    try {
+      const res = await apiFetch<any>(`/chat/messages`, {
+        method: "POST",
+        body: JSON.stringify({
+          clientId,
+          agentId,
+          message: input.trim(),
+          sender: "agent"
+        })
+      });
+      if (res.status && res.data) {
+        setMessages((prev) => [...prev, res.data]);
+        setInput("");
+      }
+    } catch (e) {
+      toastError("Failed to send message.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-[520px] border border-slate-200 rounded-2xl bg-white overflow-hidden shadow-sm">
+      <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 rounded-xl bg-navy/5 text-navy">
+            <MessageSquare size={18} />
+          </div>
+          <div>
+            <h3 className="text-xs font-extrabold text-navy uppercase tracking-wider">Client Support Conversation</h3>
+            <p className="text-[11px] text-slate-500">Messaging with <strong className="text-navy">{clientName}</strong></p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => fetchMessages(true)}
+          className="p-2 text-slate-400 hover:text-navy rounded-lg transition cursor-pointer"
+          title="Refresh Messages"
+        >
+          <RefreshCw size={14} />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50">
+        {loading && messages.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-slate-400 text-xs font-semibold">
+            <Loader2 className="animate-spin mr-2" size={18} /> Loading conversation...
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-slate-400 space-y-2">
+            <MessageSquare size={32} className="text-slate-300" />
+            <p className="text-xs font-semibold text-slate-600">No messages yet</p>
+            <p className="text-[11px] text-slate-400 max-w-[280px] text-center">
+              Send a message to reach out to {clientName} directly.
+            </p>
+          </div>
+        ) : (
+          messages.map((msg) => {
+            const isAgent = msg.sender === "agent";
+            const formattedTime = new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+            return (
+              <div key={msg._id} className={`flex flex-col ${isAgent ? "items-end" : "items-start"}`}>
+                <span className="mb-1 text-[10px] text-slate-400 font-semibold px-1">
+                  {isAgent ? "You (Account Manager)" : msg.senderName || clientName}
+                </span>
+                <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-xs leading-relaxed ${
+                  isAgent
+                    ? "rounded-tr-none bg-navy text-white shadow-sm"
+                    : "rounded-tl-none bg-white border border-slate-200 text-slate-800 shadow-sm"
+                }`}>
+                  <p className="whitespace-pre-wrap break-words">{msg.message}</p>
+                  <p className={`mt-1 text-[9px] text-right ${isAgent ? "text-slate-300" : "text-slate-400"}`}>
+                    {formattedTime}
+                  </p>
+                </div>
+              </div>
+            );
+          })
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      <form onSubmit={handleSend} className="p-3 border-t border-slate-100 bg-white flex items-center gap-2">
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder={`Type a message to ${clientName}...`}
+          className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-navy placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-navy/10 focus:border-navy/40 font-medium"
+        />
+        <button
+          type="submit"
+          disabled={!input.trim() || sending}
+          className="h-9 px-4 rounded-xl bg-navy text-white text-xs font-bold flex items-center gap-1.5 hover:bg-navy-light disabled:opacity-40 transition cursor-pointer"
+        >
+          {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+          <span>Send</span>
+        </button>
+      </form>
     </div>
   );
 }

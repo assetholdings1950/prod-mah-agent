@@ -191,19 +191,77 @@ export interface ClientTransaction {
 }
 
 // ─── Portfolio ─────────────────────────────────────────────────────────────
+export interface PortfolioLot {
+  _id: string;
+  lotNo: number;
+  amountUsd: number;
+  paidCurrency: string;
+  paidAmount: number;
+  rate: number;
+  expectedProfitUsd: number;
+  maturityDate: string;
+  status: "active" | "matured" | "closed" | string;
+}
+
 export interface Portfolio {
   _id: string;
   portfolioId?: string;
+  investmentMode?: "sip" | "lumpsum" | string;
+  amountUsd?: number;
+  durationMonths?: number;
+  status?: "active" | "paused" | "matured" | "closed" | "cancelled" | string;
+  planSnapshot?: {
+    name?: string;
+    slug?: string;
+    category?: string;
+    riskLevel?: string;
+    roiMin?: number;
+    roiMax?: number;
+    roiPeriod?: string;
+    payoutType?: string;
+    exitPenaltyPercent?: number;
+    lockInMonths?: number | null;
+    currency?: string;
+  };
+  paidFromWallet?: {
+    currency?: string;
+    amount?: number;
+    rate?: number;
+    source?: string;
+    lockedAt?: string;
+  };
+  sip?: {
+    monthlyAmountUsd?: number | null;
+    totalInstallments?: number | null;
+    paidInstallments?: number;
+    missedInstallments?: number;
+    nextDueDate?: string | null;
+    lastPaidDate?: string | null;
+  } | null;
+  lots?: PortfolioLot[];
+  summary?: {
+    totalInvestedUsd?: number;
+    totalExpectedProfitUsd?: number;
+    totalPaidProfitUsd?: number;
+    currentValueUsd?: number;
+    expectedMaturityValueUsd?: number;
+    totalLots?: number;
+    activeLots?: number;
+    maturedLots?: number;
+  };
+  startedAt?: string | null;
+  maturityDate?: string | null;
+  lockInEndDate?: string | null;
+  closedAt?: string | null;
+  createdAt?: string;
+  // Legacy / fallback fields
   planName?: string;
-  planSnapshot?: { name?: string };
   planId?: { name?: string };
   initialAmount?: number;
-  amountUsd?: number;
   maturityPayout?: number;
   roiPercentage?: number;
   roiMin?: number;
   currency?: string;
-  status?: string;
 }
 
 // ─── Paginated collection (mongoose-paginate-v2 shape) ─────────────────────

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import {
-  Search, Plus, X, RefreshCw, CheckCircle2, ChevronDown, Users, DollarSign, Eye, EyeOff, AlertCircle, Wallet, Settings, Mail
+  Search, Plus, X, RefreshCw, CheckCircle2, ChevronDown, Users, DollarSign, Eye, EyeOff, AlertCircle, Wallet, Settings, Mail, MessageSquare
 } from "lucide-react";
 import { useAgent } from "../../../components/AgentContext";
 import { api, apiFetch } from "../../../utils/api";
@@ -31,6 +31,16 @@ export default function ClientsPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [relationshipFilter, setRelationshipFilter] = useState<"all" | "referred" | "managed">("all");
+
+  const referredCount = clients.filter(c => c.relationship === "referred" || c.relationship === "both").length;
+  const managedCount = clients.filter(c => c.relationship === "managed" || c.relationship === "both").length;
+
+  const displayedClients = clients.filter((c) => {
+    if (relationshipFilter === "referred") return c.relationship === "referred" || c.relationship === "both";
+    if (relationshipFilter === "managed") return c.relationship === "managed" || c.relationship === "both";
+    return true;
+  });
 
   // Modals state
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
@@ -168,6 +178,39 @@ export default function ClientsPage() {
         </button>
       </div>
 
+      {/* Client Breakdown Stat Chips */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+        <div className="bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-xs flex items-center justify-between">
+          <div>
+            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Total Book</span>
+            <span className="text-lg font-extrabold text-navy mt-0.5 block">{clients.length} Clients</span>
+          </div>
+          <div className="h-9 w-9 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center font-bold">
+            <Users size={16} />
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-xs flex items-center justify-between">
+          <div>
+            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Referred Clients</span>
+            <span className="text-lg font-extrabold text-navy mt-0.5 block">{referredCount} Investors</span>
+          </div>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+            Earns Referral Comm.
+          </span>
+        </div>
+
+        <div className="bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-xs flex items-center justify-between">
+          <div>
+            <span className="text-[10px] uppercase font-bold text-violet-500 tracking-wider block">Managed Clients</span>
+            <span className="text-lg font-extrabold text-navy mt-0.5 block">{managedCount} Investors</span>
+          </div>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
+            Account Manager
+          </span>
+        </div>
+      </div>
+
       {/* Directory Table / Card Area */}
       <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm overflow-hidden flex flex-col justify-between">
         
@@ -190,7 +233,20 @@ export default function ClientsPage() {
               />
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+              <div className="relative flex-1 sm:flex-initial">
+                <select
+                  value={relationshipFilter}
+                  onChange={(e) => setRelationshipFilter(e.target.value as any)}
+                  className="w-full bg-slate-50 border border-slate-200/80 rounded-xl pl-3.5 pr-8 py-2 text-xs text-navy font-semibold focus:outline-none focus:bg-white focus:border-navy/40 focus:ring-4 focus:ring-navy/5 cursor-pointer appearance-none shadow-sm transition-all duration-200 min-w-[140px]"
+                >
+                  <option value="all">All Relationships</option>
+                  <option value="referred">Referred Only</option>
+                  <option value="managed">Managed Only</option>
+                </select>
+                <ChevronDown size={14} className="absolute right-3.5 top-1/2 transform -translate-y-1/2 text-slate-400 pointer-events-none" />
+              </div>
+
               <div className="relative flex-1 sm:flex-initial">
                 <select
                   value={statusFilter}
@@ -222,12 +278,12 @@ export default function ClientsPage() {
           {loading ? (
             <div className="py-20 text-center">
               <RefreshCw size={24} className="animate-spin mx-auto text-navy/40 mb-2.5" />
-              <span className="text-xs font-semibold text-slate-400">Loading Referred Clients...</span>
+              <span className="text-xs font-semibold text-slate-400">Loading Clients...</span>
             </div>
-          ) : clients.length === 0 ? (
+          ) : displayedClients.length === 0 ? (
             <div className="py-16 text-center text-slate-400 font-light px-4">
               <Users size={32} className="mx-auto text-slate-300 mb-2" />
-              <p className="text-xs">No investors linked to your referral code or assigned to you.</p>
+              <p className="text-xs">No {relationshipFilter !== "all" ? relationshipFilter : ""} investors found matching your filters.</p>
             </div>
           ) : (
             <>
@@ -247,7 +303,7 @@ export default function ClientsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium">
-                    {clients.map((c) => {
+                    {displayedClients.map((c) => {
                       const statusTone = 
                         c.status === "active" ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
                         c.status === "pending" ? "bg-amber-50 text-amber-700 border-amber-100" :
@@ -305,9 +361,18 @@ export default function ClientsPage() {
                             {c.createdAt ? new Date(c.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                           </td>
 
-                          {/* Actions (Manage + Wallets) */}
+                          {/* Actions (Manage + Chat + Wallets) */}
                           <td className="py-3.5 px-5 text-right">
                             <div className="inline-flex items-center gap-2 justify-end">
+                              <Link
+                                href={`/dashboard/conversations?clientId=${c._id}`}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg text-[10px] border border-blue-200 transition cursor-pointer"
+                                title="Chat with Client"
+                              >
+                                <MessageSquare size={12} />
+                                <span>Chat</span>
+                              </Link>
+
                               <Link
                                 href={`/dashboard/clients/${c._id}`}
                                 className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-navy hover:bg-navy-light text-white font-bold rounded-lg text-[10px] transition shadow-sm cursor-pointer"
@@ -336,7 +401,7 @@ export default function ClientsPage() {
 
               {/* MOBILE CARD VIEW (Visible on mobile screens below md) */}
               <div className="block md:hidden divide-y divide-slate-100 p-3 space-y-3">
-                {clients.map((c) => {
+                {displayedClients.map((c) => {
                   const statusTone = 
                     c.status === "active" ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
                     c.status === "pending" ? "bg-amber-50 text-amber-700 border-amber-100" :

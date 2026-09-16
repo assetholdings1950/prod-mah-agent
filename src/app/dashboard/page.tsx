@@ -12,15 +12,18 @@ import type { Client, ReferredAgent } from "@/types";
 import { SIP_COMMISSION_TIERS, tierRangeLabel } from "@/config/commissionTiers";
 
 export default function DashboardPage() {
-  const { user, availableCommission } = useAgent();
+  const { user, availableCommission, refreshProfile } = useAgent();
   const [chartTab, setChartTab] = useState<"investment" | "commission">("investment");
   const [hoveredChartIdx, setHoveredChartIdx] = useState<number | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [allClients, setAllClients] = useState<Client[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [clientsLoading, setClientsLoading] = useState(true);
+  const [clientFilter, setClientFilter] = useState<"all" | "referred" | "managed">("all");
   const [agents, setAgents] = useState<ReferredAgent[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [clientInvestmentSum, setClientInvestmentSum] = useState<number | null>(null);
+  const [clientSalesCount, setClientSalesCount] = useState<number | null>(null);
   // Counts derived from the full directory (referred + assigned-as-manager),
   // not just the referral-only profile stats.
   const [directoryTotal, setDirectoryTotal] = useState<number | null>(null);
@@ -33,11 +36,19 @@ export default function DashboardPage() {
         const res = await api.getClients({ agent: user._id, limit: 100 });
         if (res && res.status) {
           const clientDocs: Client[] = res.clients?.docs || res.data?.docs || [];
+          setAllClients(clientDocs);
           setClients(clientDocs.slice(0, 5));
           setDirectoryTotal(res.clients?.totalDocs ?? res.data?.totalDocs ?? clientDocs.length);
           setDirectoryActive(clientDocs.filter((c) => String(c.status).toLowerCase() === "active").length);
           const totalInvested = clientDocs.reduce((acc, c: any) => acc + (c.portfolioValue || c.totalInvestedAmount || c.activeInvestmentAmount || 0), 0);
           setClientInvestmentSum(totalInvested);
+
+          // Calculate total sales from client portfolio / investment counts
+          const totalSales = clientDocs.reduce((acc, c: any) => {
+            const count = c.totalInvestments ?? ((c.portfolioValue || c.totalInvestedAmount || c.activeInvestmentAmount || 0) > 0 ? 1 : 0);
+            return acc + count;
+          }, 0);
+          setClientSalesCount(totalSales);
         }
       } catch (err) {
         console.error("Failed to fetch dashboard clients:", err);
@@ -62,6 +73,9 @@ export default function DashboardPage() {
     if (user?._id) {
       fetchDashboardClients();
       fetchDashboardAgents();
+      if (refreshProfile) {
+        refreshProfile().catch(() => { });
+      }
     }
   }, [user?._id]);
 
@@ -70,21 +84,47 @@ export default function DashboardPage() {
   const agentLevel = user?.agentLevel ? (user.agentLevel.charAt(0).toUpperCase() + user.agentLevel.slice(1) + " Partner") : "Basic Partner";
   const commissionPercentage = user?.commissionPercentage !== undefined ? `${user.commissionPercentage.toFixed(1)}%` : "2.0%";
 
+  // Breakdown of referred vs managed clients
+  const referredClientsCount = allClients.filter(c => c.relationship === "referred" || c.relationship === "both").length;
+  const managedClientsCount = allClients.filter(c => c.relationship === "managed" || c.relationship === "both").length;
+
+  const displayedClients = allClients
+    .filter(c => {
+      if (clientFilter === "referred") return c.relationship === "referred" || c.relationship === "both";
+      if (clientFilter === "managed") return c.relationship === "managed" || c.relationship === "both";
+      return true;
+    })
+    .slice(0, 6);
+
   // Prefer the live directory count (covers referred + assigned clients); fall
   // back to the referral-only profile stat until the directory has loaded.
-  const totalClientsCount = directoryTotal ?? user?.totalClients ?? clients.length ?? 0;
+  const totalClientsCount = directoryTotal ?? user?.totalClients ?? allClients.length ?? 0;
   const activeClientsCount = directoryActive ?? user?.activeClients ?? 0;
-  
-  const totalInvestmentNum = clientInvestmentSum !== null 
-    ? Math.max(clientInvestmentSum, user?.totalInvestmentVolume || 0)
+
+  // Always prefer the live client directory sum over any cached/historical stat
+  const totalInvestmentNum = clientInvestmentSum !== null
+    ? clientInvestmentSum
     : (user?.totalInvestmentVolume || 0);
-  
+
   const formattedInvestmentVolume = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(totalInvestmentNum);
   const formattedCommissionBalance = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(availableCommission);
 
+  // Dynamic Salary Eligibility Calculations
+  const MIN_VOLUME_TARGET = 5000;
+
+  // Dynamic Sales count combining live client data and profile stats
+  const dynamicSalesCount = Math.max(user?.salesThisMonth || 0, clientSalesCount ?? (totalInvestmentNum > 0 ? 1 : 0));
+  const dynamicVolume = totalInvestmentNum;
+
+  const volumePercentage = Math.round((dynamicVolume / MIN_VOLUME_TARGET) * 100);
+  const cappedVolumePercentage = Math.min(100, volumePercentage);
+
+  const isVolumeMet = dynamicVolume >= MIN_VOLUME_TARGET;
+  const isSalaryEligible = isVolumeMet || (user?.isSalaryEligibleThisMonth ?? false);
+
   // SVG Chart Setup
   const chartMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
-  
+
   // Create relative trends based on actual data
   const investmentTrend = [
     totalInvestmentNum * 0.5,
@@ -94,7 +134,7 @@ export default function DashboardPage() {
     totalInvestmentNum * 0.9,
     totalInvestmentNum
   ];
-  
+
   const commissionTrend = [
     availableCommission * 0.4,
     availableCommission * 0.52,
@@ -168,7 +208,11 @@ export default function DashboardPage() {
           <div>
             <span className="text-xs text-navy-light/50 font-semibold block">Total Clients</span>
             <span className="text-lg font-extrabold text-navy block mt-0.5">{totalClientsCount} Users</span>
-            <span className="text-[10px] text-indigo-700 font-bold mt-1.5 inline-block bg-indigo-50/70 border border-indigo-100 px-2.5 py-0.5 rounded-lg">{activeClientsCount} Active</span>
+            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+              <span className="text-[10px] text-indigo-700 font-bold bg-indigo-50/70 border border-indigo-100 px-2 py-0.5 rounded-lg">{activeClientsCount} Active</span>
+              <span className="text-[10px] text-slate-700 font-bold bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-lg">{referredClientsCount} Referred</span>
+              <span className="text-[10px] text-violet-700 font-bold bg-violet-50 border border-violet-100 px-2 py-0.5 rounded-lg">{managedClientsCount} Managed</span>
+            </div>
           </div>
         </div>
 
@@ -199,7 +243,7 @@ export default function DashboardPage() {
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
+
         {/* Chart Column */}
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6 flex flex-col justify-between">
@@ -208,7 +252,7 @@ export default function DashboardPage() {
                 <h3 className="text-lg font-bold font-heading text-transparent bg-clip-text bg-gradient-to-r from-navy via-navy-light to-blue-900">Performance Analytics</h3>
                 <p className="text-xs text-navy-light/50">Growth ledger updated as of today</p>
               </div>
-              
+
               <div className="flex bg-slate-100 p-1 rounded-xl">
                 <button
                   onClick={() => setChartTab("investment")}
@@ -279,23 +323,50 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Recent Referred Clients Card */}
+          {/* Recent Referred & Managed Clients Card */}
           <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6 flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 mb-4 gap-3">
               <div>
                 <h3 className="text-base font-bold font-heading text-transparent bg-clip-text bg-gradient-to-r from-navy via-navy-light to-blue-900 flex items-center gap-2">
                   <Users size={16} className="text-navy" />
                   <span>Recent Clients</span>
                 </h3>
-                <p className="text-xs text-navy-light/50 font-normal">A quick snapshot of investors you referred or manage</p>
+                <p className="text-xs text-navy-light/50 font-normal">Investors you referred or manage as Account Manager</p>
               </div>
-              <Link
-                href="/dashboard/clients"
-                className="text-xs font-bold text-navy hover:underline flex items-center gap-1 cursor-pointer"
-              >
-                <span>View Directory</span>
-                <ChevronRight size={14} />
-              </Link>
+              <div className="flex items-center gap-3">
+                {/* Relationship Toggle */}
+                <div className="flex bg-slate-100 p-1 rounded-xl">
+                  <button
+                    onClick={() => setClientFilter("all")}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${clientFilter === "all" ? "bg-white text-navy shadow-sm" : "text-navy-light/60 hover:text-navy"
+                      }`}
+                  >
+                    All ({allClients.length})
+                  </button>
+                  <button
+                    onClick={() => setClientFilter("referred")}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${clientFilter === "referred" ? "bg-white text-navy shadow-sm" : "text-navy-light/60 hover:text-navy"
+                      }`}
+                  >
+                    Referred ({referredClientsCount})
+                  </button>
+                  <button
+                    onClick={() => setClientFilter("managed")}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${clientFilter === "managed" ? "bg-white text-navy shadow-sm" : "text-navy-light/60 hover:text-navy"
+                      }`}
+                  >
+                    Managed ({managedClientsCount})
+                  </button>
+                </div>
+
+                <Link
+                  href="/dashboard/clients"
+                  className="text-xs font-bold text-navy hover:underline flex items-center gap-1 cursor-pointer shrink-0"
+                >
+                  <span>View All</span>
+                  <ChevronRight size={14} />
+                </Link>
+              </div>
             </div>
 
             {clientsLoading ? (
@@ -303,17 +374,27 @@ export default function DashboardPage() {
                 <Loader2 className="animate-spin text-navy/40" size={24} />
                 <span className="text-xs text-slate-400 font-semibold">Loading client records...</span>
               </div>
-            ) : clients.length === 0 ? (
+            ) : displayedClients.length === 0 ? (
               <div className="text-center py-12 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
                 <Users size={32} className="mx-auto text-slate-300 mb-2 opacity-50" />
-                <p className="text-xs font-bold text-navy">No clients yet</p>
-                <p className="text-[10px] text-slate-400 mt-0.5">Share your referral code, or wait for an admin to assign you a client.</p>
+                <p className="text-xs font-bold text-navy">
+                  {clientFilter === "managed"
+                    ? "No managed clients assigned yet"
+                    : clientFilter === "referred"
+                      ? "No referred clients registered yet"
+                      : "No clients found"}
+                </p>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  {clientFilter === "managed"
+                    ? "Administrators can assign clients to your account as Account Manager."
+                    : "Share your referral code to invite new clients."}
+                </p>
                 <Link
                   href="/dashboard/clients"
-                  className="mt-3 inline-flex items-center gap-1 bg-navy hover:bg-navy-light text-white text-[10px] font-bold px-3 py-1.5 rounded-lg cursor-pointer transition shadow-sm animate-bounce"
+                  className="mt-3 inline-flex items-center gap-1 bg-navy hover:bg-navy-light text-white text-[10px] font-bold px-3 py-1.5 rounded-lg cursor-pointer transition shadow-sm"
                 >
                   <Plus size={10} />
-                  <span>Add Client</span>
+                  <span>Register Client</span>
                 </Link>
               </div>
             ) : (
@@ -322,13 +403,14 @@ export default function DashboardPage() {
                   <thead>
                     <tr className="border-b border-slate-100 text-[10px] font-bold text-navy-light/40 uppercase tracking-wider">
                       <th className="pb-3 pl-1">Client</th>
+                      <th className="pb-3 text-center">Relationship</th>
                       <th className="pb-3 text-center">KYC Status</th>
                       <th className="pb-3 text-right">Portfolio Value</th>
                       <th className="pb-3 text-right pr-1">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50 font-medium text-navy">
-                    {clients.map((c) => {
+                    {displayedClients.map((c) => {
                       const fullClientName = c.fullName || `${c.firstName || ""} ${c.lastName || ""}`.trim() || c.email || "";
                       const portfolioVal = new Intl.NumberFormat('en-US', { style: 'currency', currency: c.preferredCurrency || "USD", maximumFractionDigits: 0 }).format(c.portfolioValue || 0);
 
@@ -340,6 +422,19 @@ export default function DashboardPage() {
                         return "bg-slate-100 text-slate-600 border-slate-200";
                       };
 
+                      const agentId = typeof c.agent === "object" && c.agent !== null ? (c.agent as any)._id : c.agent;
+                      const accountManagerId = typeof c.accountManager === "object" && c.accountManager !== null ? (c.accountManager as any)._id : c.accountManager;
+                      const isRef = Boolean(agentId && String(agentId) === String(user?._id));
+                      const isMng = Boolean(accountManagerId && String(accountManagerId) === String(user?._id));
+                      const rel = c.relationship || (isRef && isMng ? "both" : isMng ? "managed" : "referred");
+
+                      const relMeta =
+                        rel === "both"
+                          ? { label: "Referred & Managed", cls: "bg-sky-50 text-sky-700 border-sky-200" }
+                          : rel === "managed"
+                            ? { label: "Managed", cls: "bg-violet-50 text-violet-700 border-violet-200" }
+                            : { label: "Referred", cls: "bg-slate-100 text-slate-700 border-slate-200" };
+
                       return (
                         <tr key={c._id} className="hover:bg-slate-50/50 group transition duration-150">
                           <td className="py-3 pl-1 flex items-center gap-2.5">
@@ -350,6 +445,11 @@ export default function DashboardPage() {
                               <span className="block font-bold text-navy truncate max-w-[120px]">{fullClientName}</span>
                               <span className="block text-[9px] text-navy-light/40 truncate max-w-[120px] font-mono leading-none mt-0.5">{c.email}</span>
                             </div>
+                          </td>
+                          <td className="py-3 text-center">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold border uppercase tracking-wider ${relMeta.cls}`}>
+                              {relMeta.label}
+                            </span>
                           </td>
                           <td className="py-3 text-center">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold border capitalize ${getKycBadge(c.kycStatus)}`}>
@@ -474,7 +574,7 @@ export default function DashboardPage() {
           {/* Partner Identity */}
           <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6">
             <h3 className="text-base font-bold font-heading text-transparent bg-clip-text bg-gradient-to-r from-navy via-navy-light to-blue-900 border-b border-slate-100 pb-3 mb-4">Partner Identity</h3>
-            
+
             <div className="space-y-4">
               <div className="flex items-center gap-3">
                 <div className="h-8 w-8 bg-slate-50 text-navy-light/60 border border-slate-200/80 rounded-lg flex items-center justify-center shrink-0">
@@ -534,51 +634,129 @@ export default function DashboardPage() {
 
           {/* Rules & Eligibility */}
           <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6">
-            <h3 className="text-base font-bold font-heading text-transparent bg-clip-text bg-gradient-to-r from-navy via-navy-light to-blue-900 border-b border-slate-100 pb-3 mb-4">Rules & Salary Status</h3>
-            
-            <div className="space-y-4">
-              {/* Salary Activation Status */}
-              <div className="flex items-start gap-3">
-                <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${user?.salaryActivated ? "bg-emerald-50 text-emerald-600 border border-emerald-100" : "bg-slate-50 text-navy-light/60 border border-slate-200/80"}`}>
-                  <Award size={15} />
-                </div>
-                <div className="flex-1">
-                  <span className="block text-[9px] uppercase font-bold text-navy/40 tracking-wider">Salary Activation</span>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs font-bold text-navy">
-                      {user?.salaryActivated ? "Activated" : "Not Activated"}
-                    </span>
-                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold ${user?.salaryActivated ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
-                      {user?.salaryActivated ? "Lifetime Active" : "Requires 2 Lifetime Sales"}
-                    </span>
-                  </div>
-                </div>
+            <div className="border-b border-slate-100 pb-3 mb-4">
+              <div>
+                <h3 className="text-base font-bold font-heading text-transparent bg-clip-text bg-gradient-to-r from-navy via-navy-light to-blue-900">
+                  Rules & Salary Status
+                </h3>
+                <p className="text-[10px] text-navy-light/50 font-normal mt-0.5">
+                  Monthly performance qualification & commission tiers
+                </p>
               </div>
+            </div>
 
-              {/* Monthly Eligibility */}
-              <div className="flex items-start gap-3">
-                <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${user?.isSalaryEligibleThisMonth ? "bg-emerald-50 text-emerald-600 border border-emerald-100" : "bg-rose-50 text-rose-600 border border-rose-100"}`}>
-                  <Activity size={15} />
-                </div>
-                <div className="flex-1">
-                  <span className="block text-[9px] uppercase font-bold text-navy/40 tracking-wider">Salary Eligibility (This Month)</span>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs font-bold text-navy">
-                      {user?.isSalaryEligibleThisMonth ? "Eligible" : "Not Eligible"}
-                    </span>
-                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold ${user?.isSalaryEligibleThisMonth ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
-                      {user?.salesThisMonth || 0} / 2 Sales
-                    </span>
+            <div className="space-y-4">
+              {/* Monthly Salary Eligibility Overview */}
+              <div className="bg-slate-50/70 border border-slate-100 rounded-xl p-3.5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 border ${isSalaryEligible
+                        ? "bg-emerald-50 text-emerald-600 border-emerald-200"
+                        : "bg-navy/5 text-navy border-navy/10"
+                        }`}
+                    >
+                      <Activity size={14} />
+                    </div>
+                    <div>
+                      <span className="block text-[10px] uppercase font-bold text-navy/60 tracking-wider">
+                        Monthly Qualification
+                      </span>
+                      <span className="text-xs font-extrabold text-navy">
+                        {isSalaryEligible
+                          ? "Target Achieved"
+                          : `$${Math.max(0, MIN_VOLUME_TARGET - dynamicVolume).toLocaleString()} Remaining to Qualify`}
+                      </span>
+                    </div>
                   </div>
-                  <p className="text-[10px] text-navy-light/50 font-light mt-1">
-                    Min. 2 sales required each month to qualify for salary.
-                  </p>
+                  <span className={`text-[10px] font-bold font-mono px-2 py-0.5 rounded-md ${isVolumeMet ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "text-navy/50"
+                    }`}>
+                    {isVolumeMet ? `${volumePercentage}% (Achieved)` : `${cappedVolumePercentage}% Overall`}
+                  </span>
                 </div>
+
+                {/* Criterion 1: Dynamic Investment Volume (Min. $5,000) */}
+                <div className="bg-white border border-slate-200/70 rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className={`p-1.5 rounded-md ${isVolumeMet ? "bg-emerald-50 text-emerald-600" : "bg-sky-50 text-sky-600"}`}>
+                        <TrendingUp size={13} />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-navy block leading-tight">
+                          Investment Volume
+                        </span>
+                        <span className="text-[9px] text-navy-light/50 font-medium">
+                          Min. $5,000 required for eligibility
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <span className="text-xs font-extrabold text-navy font-mono">
+                          {formattedInvestmentVolume}
+                        </span>
+                        <span className="text-[10px] text-navy-light/40 font-medium">
+                          / $5,000
+                        </span>
+                      </div>
+                      <span
+                        className={`inline-flex items-center gap-1 text-[9px] font-bold mt-0.5 px-1.5 py-0.5 rounded ${isVolumeMet
+                          ? "bg-emerald-50 text-emerald-700 font-semibold"
+                          : "bg-sky-50 text-sky-700"
+                          }`}
+                      >
+                        {isVolumeMet && <Check size={9} />}
+                        {volumePercentage}% ({isVolumeMet ? "Achieved" : `$${Math.max(0, MIN_VOLUME_TARGET - dynamicVolume).toLocaleString()} to goal`})
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-700 ease-out ${isVolumeMet
+                        ? "bg-gradient-to-r from-emerald-500 to-teal-500"
+                        : "bg-gradient-to-r from-sky-500 to-indigo-600"
+                        }`}
+                      style={{ width: `${cappedVolumePercentage}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Criterion 2: Closed Sales */}
+                <div className="bg-white border border-slate-200/70 rounded-lg p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-md bg-indigo-50 text-indigo-600">
+                        <Users size={13} />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-navy block leading-tight">
+                          Closed Sales
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs font-extrabold text-navy font-mono">
+                        {dynamicSalesCount} {dynamicSalesCount === 1 ? "Sale" : "Sales"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
               </div>
 
               {/* Tier Rules */}
               <div className="border-t border-slate-100 pt-3 mt-3">
-                <span className="block text-[9px] uppercase font-bold text-navy/40 tracking-wider mb-2">Commission Tiers (SIP)</span>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="block text-[9px] uppercase font-bold text-navy/40 tracking-wider">
+                    Commission Tiers (SIP)
+                  </span>
+                  <span className="text-[10px] font-bold text-navy bg-navy/5 px-2 py-0.5 rounded border border-navy/10">
+                    Your Tier: {commissionPercentage}
+                  </span>
+                </div>
                 <p className="text-[10px] text-navy-light/50 font-light mb-2">
                   Rate is set by the amount of each individual SIP sale.
                 </p>
@@ -586,10 +764,13 @@ export default function DashboardPage() {
                   {SIP_COMMISSION_TIERS.map((tier) => (
                     <div
                       key={tier.level}
-                      className={`flex items-center justify-between p-1.5 rounded-lg ${user?.agentLevel === tier.level ? "bg-navy/5 font-bold" : "text-navy-light/60 font-normal"}`}
+                      className={`flex items-center justify-between p-1.5 rounded-lg transition-colors ${user?.agentLevel === tier.level
+                        ? "bg-navy/5 font-bold text-navy border border-navy/10"
+                        : "text-navy-light/60 font-normal hover:bg-slate-50"
+                        }`}
                     >
                       <span>{tier.label} ({tierRangeLabel(tier)})</span>
-                      <span>{tier.rate}%</span>
+                      <span className="font-mono">{tier.rate}%</span>
                     </div>
                   ))}
                 </div>

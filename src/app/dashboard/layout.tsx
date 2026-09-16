@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import {
-  TrendingUp, Users, Layers, Wallet, LogOut, Copy, Check, Menu, X, Award, ShieldCheck, Mail, ChevronRight, Activity, User, Settings, ChevronDown, GitBranch
+  TrendingUp, Users, Layers, Wallet, LogOut, Copy, Check, Menu, X, Award, ShieldCheck, Mail, ChevronRight, Activity, User, Settings, ChevronDown, GitBranch, MessageSquare, Headset
 } from "lucide-react";
 import { api, apiFetch, getTokens, setCurrentUser } from "../../utils/api";
 import { AgentContext } from "../../components/AgentContext";
@@ -129,6 +129,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { name: "Dashboard Overview", href: "/dashboard", icon: TrendingUp },
     { name: "Referred Clients", href: "/dashboard/clients", icon: Users },
     { name: "Referral Agents", href: "/dashboard/agent", icon: GitBranch },
+    { name: "Client Messages", href: "/dashboard/conversations", icon: MessageSquare },
     { name: "Compare Plans", href: "/dashboard/compare", icon: Layers },
     { name: "Payout Settlements", href: "/dashboard/payouts", icon: Wallet },
     { name: "My Profile", href: "/dashboard/profile", icon: User },
@@ -136,7 +137,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <AgentContext.Provider value={{ user, setUser, availableCommission, setAvailableCommission, refreshProfile: fetchProfile }}>
-      <div className="h-screen flex bg-slate-50/50 text-navy font-sans relative overflow-hidden">
+      <div className="h-screen h-[100dvh] flex bg-slate-50/50 text-navy font-sans relative overflow-hidden min-w-0">
 
         {/* Decorative ambient background blobs */}
         <div className="absolute top-[-10%] left-[-5%] w-[45vw] h-[45vw] bg-navy/[0.015] rounded-full blur-[130px] pointer-events-none -z-10 animate-float-slow"></div>
@@ -200,20 +201,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="bg-white/5 hover:bg-white/[0.07] border border-white/10 rounded-xl p-2.5 relative overflow-hidden transition-all duration-200 text-left shrink-0">
               <div className="flex items-center gap-1.5 mb-1">
                 <div className="p-1 rounded-lg bg-blue-500/20 text-blue-300 border border-blue-400/20">
-                  <Mail size={12} />
+                  <Headset size={12} />
                 </div>
                 <h4 className="text-[11px] font-bold text-white uppercase tracking-wider">Support Desk</h4>
               </div>
               <p className="text-[10px] text-slate-300/80 font-normal leading-snug mb-2">
                 Assistance with KYC, commissions, or customer payouts.
               </p>
-              <a
-                href="mailto:admin@merlionassetholdings.com"
+              <Link
+                href="/dashboard/support"
                 className="flex items-center justify-center gap-1.5 w-full bg-white hover:bg-slate-100 text-navy font-bold text-center py-1.5 px-3 rounded-lg text-[11px] shadow-sm transition duration-200 cursor-pointer active:scale-[0.99]"
               >
-                <Mail size={12} className="text-navy shrink-0" />
-                <span>Email Support Office</span>
-              </a>
+                <Headset size={12} className="text-navy shrink-0" />
+                <span>Chat Support</span>
+              </Link>
             </div>
           </div>
 
@@ -266,7 +267,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* =========================================================================
             MOBILE NAV SYSTEM
             ========================================================================= */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
           {/* Mobile Top Header */}
           <header className="lg:hidden bg-navy text-white px-3 sm:px-4 h-16 flex items-center justify-between relative z-40 border-b border-navy-light/10 shadow-md">
             <div className="flex items-center gap-3 min-w-0">
@@ -279,7 +280,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </button>
 
               <h1 className="text-sm font-bold text-white truncate uppercase tracking-wider">
-                {menuItems.find(m => pathname === m.href)?.name || "Dashboard"}
+                {pathname === "/dashboard/support" ? "Support Chat" : (menuItems.find(m => pathname === m.href)?.name || "Dashboard")}
               </h1>
             </div>
 
@@ -339,14 +340,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         <User size={14} className="text-slate-400" />
                         View Profile
                       </Link>
-                      <a
-                        href="mailto:admin@merlionassetholdings.com"
+                      <Link
+                        href="/dashboard/support"
                         onClick={() => setProfileMenuOpen(false)}
                         className="flex items-center gap-3 px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
                       >
-                        <Mail size={14} className="text-slate-400" />
-                        Email Support Office
-                      </a>
+                        <Headset size={14} className="text-slate-400" />
+                        Chat Support
+                      </Link>
                     </div>
 
                     {/* Logout */}
@@ -428,20 +429,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 text-left shrink-0">
                     <div className="flex items-center gap-2 mb-1.5">
                       <div className="p-1 rounded-lg bg-blue-500/20 text-blue-300 border border-blue-400/20">
-                        <Mail size={13} />
+                        <Headset size={13} />
                       </div>
                       <h4 className="text-xs font-bold text-white uppercase tracking-wider">Support Desk</h4>
                     </div>
                     <p className="text-[11px] text-slate-300/80 font-normal leading-relaxed mb-3">
                       Reach out for prompt assistance with KYC, commissions, or customer payouts.
                     </p>
-                    <a
-                      href="mailto:support@merlionassetholdings.com"
+                    <Link
+                      href="/dashboard/support"
+                      onClick={() => setMobileMenuOpen(false)}
                       className="flex items-center justify-center gap-1.5 w-full bg-white hover:bg-slate-100 text-navy font-bold text-center py-2 px-3 rounded-xl text-xs shadow transition duration-150 cursor-pointer"
                     >
-                      <Mail size={13} className="text-navy shrink-0" />
-                      <span>Email Support Office</span>
-                    </a>
+                      <Headset size={13} className="text-navy shrink-0" />
+                      <span>Chat Support</span>
+                    </Link>
                   </div>
                 </div>
 
@@ -474,14 +476,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {/* =========================================================================
               GLOBAL DESKTOP HEADER & MAIN SCROLL CONTENT
               ========================================================================= */}
-          <div className="flex-1 flex flex-col overflow-y-auto">
+          <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
             {/* Desktop Top Header Bar */}
             <header className="hidden lg:flex bg-white/85 backdrop-blur-md border-b border-slate-200/80 h-16 sticky top-0 z-20 shadow-[0_1px_3px_rgba(0,0,0,0.03)]">
               <div className="max-w-[1600px] w-full mx-auto flex items-center justify-between px-8">
                 {/* Left: Title */}
                 <div className="flex items-center gap-3">
                   <h1 className="text-sm font-bold text-navy uppercase tracking-wider">
-                    {menuItems.find(m => pathname === m.href)?.name || "Management Console"}
+                    {pathname === "/dashboard/support" ? "Support Chat" : (menuItems.find(m => pathname === m.href)?.name || "Management Console")}
                   </h1>
                 </div>
 
@@ -549,14 +551,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                               <User size={14} className="text-slate-400" />
                               View Profile
                             </Link>
-                            <a
-                              href="mailto:admin@merlionassetholdings.com"
+                            <Link
+                              href="/dashboard/support"
                               onClick={() => setProfileMenuOpen(false)}
                               className="flex items-center gap-3 px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
                             >
-                              <Mail size={14} className="text-slate-400" />
-                              Email Support Office
-                            </a>
+                              <Headset size={14} className="text-slate-400" />
+                              Chat Support
+                            </Link>
                           </div>
 
                           {/* Logout */}
@@ -578,14 +580,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </header>
 
             {/* Main content scroll container */}
-            <main className="flex-1 py-8 px-4 sm:px-6 lg:px-8 max-w-[1600px] w-full mx-auto relative z-10 flex flex-col justify-between min-h-[calc(100vh-4rem)]">
-              {children}
+            {(() => {
+              const isConversations = pathname === "/dashboard/conversations";
+              return isConversations ? (
+                /* Conversations: full height, no padding clipping, no footer */
+                <main className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col px-3 sm:px-6 lg:px-8 py-3 sm:py-5">
+                  {children}
+                </main>
+              ) : (
+                /* All other pages: standard scrollable padded layout */
+                <main className="flex-1 overflow-y-auto py-8 px-4 sm:px-6 lg:px-8 max-w-[1600px] w-full mx-auto relative z-10 flex flex-col">
+                  {children}
 
-              {/* Centralised Luxury Footer */}
-              <footer className="mt-12 py-5 border-t border-slate-200/60 text-center text-[10px] text-slate-400 tracking-wider font-medium">
-                © 2026 Merlion Asset Holdings. All rights reserved. Registered Singapore Financial Representative Portal.
-              </footer>
-            </main>
+                  {/* Centralised Luxury Footer */}
+                  <footer className="mt-12 py-5 border-t border-slate-200/60 text-center text-[10px] text-slate-400 tracking-wider font-medium">
+                    © 2026 Merlion Asset Holdings. All rights reserved. Registered Singapore Financial Representative Portal.
+                  </footer>
+                </main>
+              );
+            })()}
           </div>
 
         </div>
