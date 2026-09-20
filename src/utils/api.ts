@@ -175,6 +175,8 @@ export interface KycPayload {
   selfDeclarationVideo: string;
   governmentIdFront: string;
   governmentIdBack: string;
+  governmentIdType: string;
+  governmentIdNumber: string;
 }
 
 export interface WithdrawalPayload {
@@ -283,10 +285,19 @@ export const api = {
     selfDeclarationVideo,
     governmentIdFront,
     governmentIdBack,
+    governmentIdType,
+    governmentIdNumber,
   }: KycPayload) => {
     const res = await apiFetch<{ user?: Agent }>("/agent/submit-kyc", {
       method: "POST",
-      body: JSON.stringify({ liveSelfie, selfDeclarationVideo, governmentIdFront, governmentIdBack }),
+      body: JSON.stringify({
+        liveSelfie,
+        selfDeclarationVideo,
+        governmentIdFront,
+        governmentIdBack,
+        governmentIdType,
+        governmentIdNumber,
+      }),
     });
     if (res.status && res.user) {
       setCurrentUser(res.user);

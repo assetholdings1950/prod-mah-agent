@@ -9,11 +9,15 @@ import { toastSuccess, toastError, toastWarning, toastLoading, toastUpdate } fro
 import {
   type CloudinaryAssetType,
   dataUrlToBlob,
+  getMediaExtension,
   isCloudinaryUrl,
+  isSupportedKycVideo,
   optimizeImage,
   uploadAsset,
 } from "../../utils/cloudinaryUpload";
 import type { Agent } from "@/types";
+
+const GOVERNMENT_ID_TYPES = ["Passport", "National Id", "Driving License", "Voter Id", "Aadhar", "PAN", "Other"];
 
 export default function KycVerificationPage() {
   const router = useRouter();
@@ -27,6 +31,10 @@ export default function KycVerificationPage() {
 
   // Video state
   const [selfDeclarationVideo, setSelfDeclarationVideo] = useState<string | null>(null);
+  // Keep a newly recorded/uploaded file as its original binary. The client
+  // portal uploads this raw Blob; base64 round-tripping a video can make a
+  // valid recording fail Cloudinary's format inspection.
+  const [selfDeclarationVideoFile, setSelfDeclarationVideoFile] = useState<Blob | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [isRecordingCameraActive, setIsRecordingCameraActive] = useState(false);
   const [isVideoRecording, setIsVideoRecording] = useState(false);
@@ -38,11 +46,16 @@ export default function KycVerificationPage() {
   // Govt ID states
   const [govtIdFront, setGovtIdFront] = useState<string | null>(null);
   const [govtIdBack, setGovtIdBack] = useState<string | null>(null);
+  const [governmentIdType, setGovernmentIdType] = useState("");
+  const [governmentIdNumber, setGovernmentIdNumber] = useState("");
+  const [idConfirmed, setIdConfirmed] = useState(false);
 
   // Status & UI states
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadStage, setUploadStage] = useState<"idle" | "uploading" | "finalizing">("idle");
+  const [uploadProgress, setUploadProgress] = useState({ selfie: 0, idFront: 0, idBack: 0, video: 0 });
   const [showPopup, setShowPopup] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -90,6 +103,9 @@ export default function KycVerificationPage() {
         setVideoPreviewUrl(currentUser.kycVerification.selfDeclarationVideo || null);
         setGovtIdFront(currentUser.kycVerification.governmentIdFront || null);
         setGovtIdBack(currentUser.kycVerification.governmentIdBack || null);
+        setGovernmentIdType(currentUser.kycVerification.governmentIdType || "");
+        setGovernmentIdNumber(currentUser.kycVerification.governmentIdNumber || "");
+        setIdConfirmed(Boolean(currentUser.kycVerification.governmentIdType && currentUser.kycVerification.governmentIdNumber));
       }
     }
     setLoading(false);
@@ -241,25 +257,31 @@ export default function KycVerificationPage() {
       return;
     }
 
-    // Check supported types safely, negotiating WebM, MP4, and QuickTime codecs for Apple and Android compatibility
-    let options: MediaRecorderOptions = {};
-    if (typeof MediaRecorder.isTypeSupported === "function") {
-      const types = [
-        "video/webm;codecs=vp9",
-        "video/webm;codecs=vp8",
-        "video/webm",
-        "video/mp4;codecs=h264",
-        "video/mp4",
-        "video/quicktime;codecs=h264",
-        "video/quicktime"
-      ];
-      for (const type of types) {
-        if (MediaRecorder.isTypeSupported(type)) {
-          options = { mimeType: type };
-          break;
-        }
-      }
+    // Use the first format that the current browser can actually produce.
+    // The upload below preserves this exact Blob, matching the client KYC flow.
+    const supportedRecordingType = typeof MediaRecorder.isTypeSupported === "function"
+      ? [
+          "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+          "video/mp4;codecs=avc1.42E01E",
+          "video/mp4",
+          "video/webm;codecs=vp8,opus",
+          "video/webm",
+        ].find((type) => MediaRecorder.isTypeSupported(type))
+      : undefined;
+
+    if (!supportedRecordingType) {
+      setError("This browser cannot record a compatible video. Please upload an MP4, MOV, or WebM file.");
+      toastError("Video Recording Unavailable", {
+        description: "Use Upload Video and choose an MP4, MOV, or WebM declaration video.",
+      });
+      return;
     }
+
+    const options: MediaRecorderOptions = {
+      mimeType: supportedRecordingType,
+      videoBitsPerSecond: 900_000,
+      audioBitsPerSecond: 64_000,
+    };
 
     try {
       const recorder = new MediaRecorder(videoRecordingStream, options);
@@ -274,7 +296,7 @@ export default function KycVerificationPage() {
 
       recorder.onstop = () => {
         console.log("recorder.onstop called. total chunks:", chunks.length);
-        const recordedType = recorder.mimeType || options.mimeType || "video/mp4";
+        const recordedType = recorder.mimeType || options.mimeType || "video/webm";
         console.log("Using MIME type:", recordedType);
         const blob = new Blob(chunks, { type: recordedType });
         console.log("Created Blob: size=", blob.size, "type=", blob.type);
@@ -290,13 +312,8 @@ export default function KycVerificationPage() {
           return newUrl;
         });
 
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const result = typeof reader.result === "string" ? reader.result : null;
-          console.log("FileReader finished. Base64 length:", result ? result.length : 0);
-          setSelfDeclarationVideo(result);
-        };
-        reader.readAsDataURL(blob);
+        setSelfDeclarationVideo(null);
+        setSelfDeclarationVideoFile(blob);
         stopVideoCamera();
       };
 
@@ -344,9 +361,9 @@ export default function KycVerificationPage() {
   const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (!file.type.startsWith("video/")) {
-        setError("Please upload video files only (MP4/WebM).");
-        toastError("Invalid File Type", { description: "Please upload video files only (MP4/WebM)." });
+      if (!isSupportedKycVideo(file.type)) {
+        setError("Please upload an MP4, MOV, or WebM video file.");
+        toastError("Unsupported Video", { description: "For KYC, use an MP4, MOV, or WebM video file." });
         return;
       }
       if (file.size > 25 * 1024 * 1024) {
@@ -363,12 +380,9 @@ export default function KycVerificationPage() {
         return URL.createObjectURL(file);
       });
 
-      const reader = new FileReader();
-      reader.onload = () => {
-        setSelfDeclarationVideo(typeof reader.result === "string" ? reader.result : null);
-        toastSuccess("Video uploaded successfully!");
-      };
-      reader.readAsDataURL(file);
+      setSelfDeclarationVideo(null);
+      setSelfDeclarationVideoFile(file);
+      toastSuccess("Video ready to upload!");
     }
   };
 
@@ -410,9 +424,15 @@ export default function KycVerificationPage() {
       setIsSubmitting(false);
       return;
     }
-    if (!selfDeclarationVideo) {
+    if (!selfDeclarationVideo && !selfDeclarationVideoFile) {
       setError("Please record or upload your self-declaration video.");
       toastError("Missing Document", { description: "Please record or upload your self-declaration video." });
+      setIsSubmitting(false);
+      return;
+    }
+    if (!governmentIdType || !governmentIdNumber.trim() || !idConfirmed) {
+      setError("Please select your Government ID type and confirm its number.");
+      toastError("Government ID Required", { description: "Enter and confirm your Government ID details." });
       setIsSubmitting(false);
       return;
     }
@@ -434,34 +454,79 @@ export default function KycVerificationPage() {
     });
 
     try {
+      setUploadStage("uploading");
+      setUploadProgress({ selfie: 0, idFront: 0, idBack: 0, video: 0 });
       // Upload each asset straight to Cloudinary (agents/<name-slug>/kyc/…) via a
       // signed request, unless it's already a stored URL (reloaded from the DB).
       const putAsset = async (
         value: string,
         assetType: CloudinaryAssetType,
         kind: "image" | "video",
+        progressKey: "selfie" | "idFront" | "idBack" | "video",
       ): Promise<string> => {
-        if (isCloudinaryUrl(value)) return value;
+        if (isCloudinaryUrl(value)) {
+          setUploadProgress((current) => ({ ...current, [progressKey]: 100 }));
+          return value;
+        }
         const raw = dataUrlToBlob(value);
         const { blob, filename } =
           kind === "image"
             ? await optimizeImage(new File([raw], `${assetType}.jpg`, { type: raw.type }))
-            : { blob: raw, filename: `${assetType}.webm` };
-        return uploadAsset(assetType, blob, filename);
+            : {
+                blob: raw,
+                filename: `${assetType}.${getMediaExtension(raw.type)}`,
+              };
+        return uploadAsset(assetType, blob, filename, (percentage) => {
+          setUploadProgress((current) => ({ ...current, [progressKey]: percentage }));
+        });
       };
 
-      const [selfieUrl, videoUrl, idFrontUrl, idBackUrl] = await Promise.all([
-        putAsset(liveSelfie, "selfie", "image"),
-        putAsset(selfDeclarationVideo, "declaration_video", "video"),
-        putAsset(govtIdFront, "id_front", "image"),
-        putAsset(govtIdBack, "id_back", "image"),
-      ]);
+      const putVideoAsset = async (): Promise<string> => {
+        if (selfDeclarationVideo && isCloudinaryUrl(selfDeclarationVideo)) {
+          setUploadProgress((current) => ({ ...current, video: 100 }));
+          return selfDeclarationVideo;
+        }
 
+        // New agent recordings and selected files are uploaded byte-for-byte,
+        // exactly as the client KYC portal does. The data-URL fallback only
+        // supports an old in-memory draft from before this change.
+        const raw = selfDeclarationVideoFile
+          ?? (selfDeclarationVideo ? dataUrlToBlob(selfDeclarationVideo) : null);
+        if (!raw || !isSupportedKycVideo(raw.type)) {
+          throw new Error("This declaration video is not MP4, MOV, or WebM. Please record it again or choose a supported file.");
+        }
+        return uploadAsset(
+          "declaration_video",
+          raw,
+          `declaration_video.${getMediaExtension(raw.type)}`,
+          (percentage) => setUploadProgress((current) => ({ ...current, video: percentage })),
+        );
+      };
+
+      // Upload one asset at a time. This is gentler on mobile/weak connections and
+      // lets an already-finished asset be kept if a later upload must be retried.
+      const selfieUrl = await putAsset(liveSelfie, "selfie", "image", "selfie");
+      setLiveSelfie(selfieUrl);
+
+      const idFrontUrl = await putAsset(govtIdFront, "id_front", "image", "idFront");
+      setGovtIdFront(idFrontUrl);
+
+      const idBackUrl = await putAsset(govtIdBack, "id_back", "image", "idBack");
+      setGovtIdBack(idBackUrl);
+
+      const videoUrl = await putVideoAsset();
+      setSelfDeclarationVideo(videoUrl);
+      setSelfDeclarationVideoFile(null);
+      setVideoPreviewUrl(videoUrl);
+
+      setUploadStage("finalizing");
       const res = await api.submitKyc({
         liveSelfie: selfieUrl,
         selfDeclarationVideo: videoUrl,
         governmentIdFront: idFrontUrl,
-        governmentIdBack: idBackUrl
+        governmentIdBack: idBackUrl,
+        governmentIdType,
+        governmentIdNumber: governmentIdNumber.trim(),
       });
 
       if (res.status) {
@@ -479,15 +544,32 @@ export default function KycVerificationPage() {
         });
       }
     } catch (err) {
-      const errorMsg = "An error occurred during submission. Please try again.";
+      const errorMsg = err instanceof Error
+        ? err.message
+        : "An error occurred during submission. Please try again.";
       setError(errorMsg);
       toastUpdate(toastId, "error", "Submission error", {
         description: errorMsg
       });
     } finally {
       setIsSubmitting(false);
+      setUploadStage("idle");
     }
   };
+
+  const overallUploadProgress = Math.round(
+    (uploadProgress.selfie + uploadProgress.idFront + uploadProgress.idBack + uploadProgress.video) / 4,
+  );
+
+  const completedSteps = [
+    Boolean(liveSelfie),
+    Boolean(governmentIdType && governmentIdNumber.trim() && idConfirmed),
+    Boolean(govtIdFront),
+    Boolean(govtIdBack),
+    Boolean(selfDeclarationVideo || selfDeclarationVideoFile),
+  ];
+  const completedStepCount = completedSteps.filter(Boolean).length;
+  const currentStep = completedSteps.findIndex((complete) => !complete) + 1 || 5;
 
   const handleLogout = async () => {
     await api.logout();
@@ -593,10 +675,41 @@ export default function KycVerificationPage() {
             </p>
           </div>
 
-          <form onSubmit={handleSaveAndSend} className="p-8 space-y-8">
+          <form onSubmit={handleSaveAndSend} className="flex flex-col gap-8 p-8">
+
+            {/* Client-portal style five-step checklist */}
+            <div className="order-1 rounded-2xl border border-[#dce7f5] bg-[#f8fafd] p-4 sm:p-5">
+              <div className="grid grid-cols-5 gap-1">
+                {[
+                  "Live Selfie",
+                  "Government ID",
+                  "ID Front",
+                  "ID Back",
+                  "Declaration Video",
+                ].map((label, index) => {
+                  const step = index + 1;
+                  const complete = completedSteps[index];
+                  const active = !complete && step === currentStep;
+                  return (
+                    <div key={label} className="relative flex min-w-0 flex-col items-center text-center">
+                      {index > 0 && (
+                        <span className={`absolute right-1/2 top-4 h-0.5 w-full ${complete ? "bg-[#2563eb]" : "bg-[#dce7f5]"}`} />
+                      )}
+                      <span className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 text-[10px] font-bold ${complete ? "border-[#2563eb] bg-[#2563eb] text-white" : active ? "border-[#2563eb] bg-white text-[#2563eb]" : "border-[#dce7f5] bg-white text-[#8da3c4]"}`}>
+                        {complete ? <CheckCircle2 size={14} /> : step}
+                      </span>
+                      <span className={`mt-2 hidden text-[9px] font-bold leading-tight sm:block ${complete || active ? "text-[#071F55]" : "text-[#8da3c4]"}`}>{label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-4 text-center text-[11px] font-medium text-[#8da3c4]">
+                {completedStepCount} of 5 verification steps completed
+              </p>
+            </div>
 
             {/* Phase 1: Live Webcam Self Capture */}
-            <div className="space-y-4">
+            <div className="order-2 space-y-4">
               <h3 className="text-sm font-bold uppercase tracking-wider text-navy/90 flex items-center gap-2">
                 <span className="h-6 w-6 rounded-full bg-navy/5 flex items-center justify-center text-[10px] text-navy font-bold">1</span>
                 Live Selfie Image Capture
@@ -676,12 +789,52 @@ export default function KycVerificationPage() {
               </div>
             </div>
 
-            <hr className="border-slate-100" />
 
-            {/* Phase 2: Live Video Declaration */}
-            <div className="space-y-4">
+            {/* Phase 2: Government ID number */}
+            <div className="order-3 space-y-4">
               <h3 className="text-sm font-bold uppercase tracking-wider text-navy/90 flex items-center gap-2">
                 <span className="h-6 w-6 rounded-full bg-navy/5 flex items-center justify-center text-[10px] text-navy font-bold">2</span>
+                Government ID Number
+              </h3>
+              <div className="grid grid-cols-1 gap-4 rounded-2xl border border-[#dce7f5] bg-[#f8fafd] p-5 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto] md:items-end">
+                <label className="block text-xs font-semibold text-[#405981]">
+                  ID Type
+                  <select
+                    value={governmentIdType}
+                    onChange={(event) => { setGovernmentIdType(event.target.value); setIdConfirmed(false); }}
+                    disabled={kycStatus === "under_review"}
+                    className="mt-2 h-11 w-full rounded-xl border border-[#dce7f5] bg-white px-3 text-sm font-medium text-[#071F55] outline-none transition focus:border-[#2563eb]"
+                  >
+                    <option value="">Select ID type</option>
+                    {GOVERNMENT_ID_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold text-[#405981]">
+                  ID Number
+                  <input
+                    value={governmentIdNumber}
+                    onChange={(event) => { setGovernmentIdNumber(event.target.value); setIdConfirmed(false); }}
+                    disabled={kycStatus === "under_review"}
+                    placeholder="Enter number exactly as shown on your ID"
+                    className="mt-2 h-11 w-full rounded-xl border border-[#dce7f5] bg-white px-3 text-sm font-medium text-[#071F55] outline-none placeholder:text-slate-400 transition focus:border-[#2563eb]"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={!governmentIdType || !governmentIdNumber.trim() || kycStatus === "under_review"}
+                  onClick={() => setIdConfirmed(true)}
+                  className={`h-11 rounded-xl px-4 text-xs font-bold transition ${idConfirmed ? "bg-emerald-50 text-emerald-700" : "bg-[#1D4ED8] text-white hover:bg-[#1a44c2] disabled:cursor-not-allowed disabled:opacity-50"}`}
+                >
+                  {idConfirmed ? "ID details saved" : "Confirm details"}
+                </button>
+              </div>
+            </div>
+
+
+            {/* Phase 5: Live Video Declaration */}
+            <div className="order-5 space-y-4">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-navy/90 flex items-center gap-2">
+                <span className="h-6 w-6 rounded-full bg-navy/5 flex items-center justify-center text-[10px] text-navy font-bold">5</span>
                 Self-Declaration Video Verification
               </h3>
 
@@ -753,7 +906,7 @@ export default function KycVerificationPage() {
                         className="flex items-center gap-1.5 px-4 py-2.5 bg-navy text-white hover:bg-navy-light rounded-xl text-xs font-semibold transition disabled:opacity-50 cursor-pointer"
                       >
                         <Video size={14} />
-                        <span>{selfDeclarationVideo ? "Record New Video" : "Record Live Video"}</span>
+                        <span>{selfDeclarationVideo || selfDeclarationVideoFile ? "Record New Video" : "Record Live Video"}</span>
                       </button>
                     )}
 
@@ -773,7 +926,7 @@ export default function KycVerificationPage() {
                         <span>Upload Video</span>
                         <input
                           type="file"
-                          accept="video/*"
+                          accept="video/mp4,video/quicktime,video/webm"
                           onChange={handleVideoFileChange}
                           className="hidden"
                         />
@@ -785,12 +938,11 @@ export default function KycVerificationPage() {
               </div>
             </div>
 
-            <hr className="border-slate-100" />
 
-            {/* Phase 3: Government ID Front & Back side */}
-            <div className="space-y-4">
+            {/* Phase 3 and 4: Government ID Front & Back side */}
+            <div className="order-4 space-y-4">
               <h3 className="text-sm font-bold uppercase tracking-wider text-navy/90 flex items-center gap-2">
-                <span className="h-6 w-6 rounded-full bg-navy/5 flex items-center justify-center text-[10px] text-navy font-bold">3</span>
+                <span className="h-6 w-6 rounded-full bg-navy/5 flex items-center justify-center text-[10px] text-navy font-bold">3–4</span>
                 Government Identification (Govt ID) Documents
               </h3>
 
@@ -890,7 +1042,7 @@ export default function KycVerificationPage() {
             </div>
 
             {/* Submit Bar */}
-            <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="order-6 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
               <p className="text-xs text-navy/80 font-normal max-w-md">
                 By clicking "Save & Send Approval", you authorize Merlion Asset Holdings compliance team to securely review your submitted credentials.
               </p>
@@ -906,9 +1058,74 @@ export default function KycVerificationPage() {
                 ) : (
                   <ShieldCheck size={14} />
                 )}
-                <span>Save & Send Approval</span>
+                <span>{isSubmitting ? "Uploading & Submitting…" : "Submit KYC"}</span>
               </button>
             </div>
+
+            {isSubmitting && (
+              <div className="order-7 relative overflow-hidden rounded-2xl border border-white/70 bg-[linear-gradient(135deg,#061A43_0%,#0A3475_52%,#1264D9_100%)] p-px shadow-[0_18px_44px_rgba(7,31,85,0.22)]">
+                <div className="pointer-events-none absolute -right-12 -top-16 h-40 w-40 rounded-full bg-cyan-300/20 blur-3xl" />
+                <div className="pointer-events-none absolute -bottom-20 -left-10 h-40 w-40 rounded-full bg-blue-400/25 blur-3xl" />
+                <div className="relative rounded-[15px] bg-[linear-gradient(135deg,rgba(5,22,55,0.98),rgba(8,45,101,0.95))] p-5 sm:p-6">
+                  <div className="flex items-center gap-4">
+                    <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/10">
+                      {uploadStage === "finalizing" ? (
+                        <ShieldCheck size={20} className="text-cyan-200" />
+                      ) : (
+                        <RefreshCw size={20} className="animate-spin text-cyan-200" />
+                      )}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-white">
+                            {uploadStage === "finalizing" ? "Finalizing submission" : "Uploading documents"}
+                          </p>
+                          <p className="mt-0.5 text-[11px] font-medium text-blue-100/65">
+                            {uploadStage === "finalizing"
+                              ? "Saving your verification securely"
+                              : "Secure transfer — retries automatically if your connection drops"}
+                          </p>
+                        </div>
+                        <span className="rounded-full border border-cyan-200/20 bg-cyan-200/10 px-3 py-1.5 font-mono text-xs font-bold tabular-nums text-cyan-100">
+                          {uploadStage === "finalizing" ? 100 : overallUploadProgress}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 h-3 overflow-hidden rounded-full border border-white/10 bg-black/25 p-px">
+                    <div
+                      className="h-full rounded-full bg-[linear-gradient(90deg,#38BDF8_0%,#60A5FA_48%,#A5F3FC_100%)] transition-[width] duration-500 ease-out"
+                      style={{ width: `${uploadStage === "finalizing" ? 100 : overallUploadProgress}%` }}
+                    />
+                  </div>
+
+                  <div className="mt-5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                    {[
+                      ["Selfie", uploadProgress.selfie],
+                      ["ID Front", uploadProgress.idFront],
+                      ["ID Back", uploadProgress.idBack],
+                      ["Video", uploadProgress.video],
+                    ].map(([label, value]) => (
+                      <div key={String(label)} className="rounded-xl border border-white/10 bg-white/[0.07] px-3 py-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-[10px] font-semibold text-blue-100/65">{label}</span>
+                          <span className="font-mono text-[10px] font-bold tabular-nums text-cyan-100">{value}%</span>
+                        </div>
+                        <div className="mt-2 h-1 overflow-hidden rounded-full bg-black/25">
+                          <div className="h-full rounded-full bg-gradient-to-r from-sky-400 to-cyan-200 transition-[width] duration-500" style={{ width: `${value}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex items-center justify-between text-[9px] font-semibold uppercase tracking-[0.14em] text-blue-100/45">
+                    <span>Encrypted transfer</span>
+                    <span>{uploadStage === "finalizing" ? "Verification queued" : "In progress"}</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
           </form>
         </div>
