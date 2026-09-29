@@ -61,6 +61,28 @@ export interface Agent {
   salesThisMonth?: number;
 }
 
+// ─── Commission ledger ──────────────────────────────────────────────────────
+export interface CommissionTransaction {
+  _id: string;
+  amount: number;
+  currency: "USD" | string;
+  status: "completed" | "pending" | "failed" | string;
+  description?: string;
+  referenceId?: string;
+  createdAt?: string;
+  metadata?: {
+    commissionPolicyId?: string;
+    commissionPolicyName?: string;
+    commissionRate?: number;
+    commissionBaseUsd?: number;
+    investmentTransactionId?: string;
+    clientId?: string;
+    commissionRecipient?: string;
+  };
+  client?: Pick<Client, "_id" | "firstName" | "lastName" | "fullName" | "email"> | null;
+  investment?: { _id: string; amount?: number; currency?: string; usdAmount?: number; createdAt?: string } | null;
+}
+
 // ─── Referred agent (downline) ─────────────────────────────────────────────
 // Returned by GET /agent/me/referred-agents — agents the logged-in agent has
 // personally referred. `totalClients`/`activeClients` are that downline agent's

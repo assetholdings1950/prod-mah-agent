@@ -16,6 +16,8 @@ export default function PayoutsPage() {
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [withdrawNote, setWithdrawNote] = useState("");
   const [isSubmittingWithdraw, setIsSubmittingWithdraw] = useState(false);
+  const [withdrawSource, setWithdrawSource] = useState<"commission" | "salary">("commission");
+  const [salaryBalance, setSalaryBalance] = useState(0);
 
   // Payout destinations + selection
   const [wallets, setWallets] = useState<WalletType[]>([]);
@@ -68,6 +70,11 @@ export default function PayoutsPage() {
     fetchPayoutHistory();
   }, [reloadDestinations, fetchPayoutHistory]);
 
+  const loadSalaryBalance = useCallback(async () => {
+    try { const res = await api.getMySalaryBalance(); setSalaryBalance(Number(res.data?.availableSalaryBalance || 0)); } catch { setSalaryBalance(0); }
+  }, []);
+  useEffect(() => { loadSalaryBalance(); }, [loadSalaryBalance]);
+
   // Derived effective destination ID
   const effectiveWalletId = selectedWalletId || wallets.find((w) => w.isPrimary)?._id || wallets[0]?._id || null;
 
@@ -103,8 +110,9 @@ export default function PayoutsPage() {
       toastError("Please enter a valid withdrawal amount.");
       return;
     }
-    if (amount > availableCommission) {
-      toastError("Withdrawal amount exceeds available commission.");
+    const sourceBalance = withdrawSource === "salary" ? salaryBalance : availableCommission;
+    if (amount > sourceBalance) {
+      toastError(`Withdrawal amount exceeds available ${withdrawSource} balance.`);
       return;
     }
 
@@ -124,6 +132,7 @@ export default function PayoutsPage() {
         currency: user?.preferredCurrency || "USD",
         walletId: effectiveWalletId,
         note: withdrawNote.trim() || undefined,
+        fundSource: withdrawSource,
       });
 
       if (res?.status) {
@@ -133,6 +142,7 @@ export default function PayoutsPage() {
         // Refresh balances and history
         await fetchPayoutHistory();
         await refreshProfile();
+        await loadSalaryBalance();
         
         toastUpdate(toastId, "success", "Payout Requested Successfully", {
           description: `Payout request of $${amount.toLocaleString()} submitted. Admins have been notified.`
@@ -198,12 +208,18 @@ export default function PayoutsPage() {
               {/* Balances Widget */}
               <div className="bg-gradient-to-br from-navy via-navy-light to-blue-950 text-white rounded-2xl p-5 flex items-center justify-between shadow">
                 <div>
-                  <span className="block text-[10px] font-bold text-blue-300 uppercase tracking-wider">Settlement Eligible Balance</span>
-                  <span className="text-2xl font-extrabold block mt-1">{formattedCommissionBalance}</span>
+                  <span className="block text-[10px] font-bold text-blue-300 uppercase tracking-wider">Settlement eligible balance</span>
+                  <span className="text-2xl font-extrabold block mt-1">{withdrawSource === "salary" ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(salaryBalance) : formattedCommissionBalance}</span>
                 </div>
                 <div className="bg-white/10 p-3 rounded-xl border border-white/5 shadow-inner">
                   <Wallet size={24} className="text-blue-300 animate-pulse" />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-1.5">
+                {(["commission", "salary"] as const).map((source) => <button key={source} type="button" onClick={() => { setWithdrawSource(source); setWithdrawAmount(""); }} className={`rounded-lg px-3 py-2 text-xs font-bold transition ${withdrawSource === source ? "bg-white text-navy shadow-sm" : "text-slate-400"}`}>
+                  {source === "commission" ? `Commission (${formattedCommissionBalance})` : `Salary (${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(salaryBalance)})`}
+                </button>)}
               </div>
 
               {/* Amount input */}
@@ -216,7 +232,7 @@ export default function PayoutsPage() {
                     required
                     step="0.01"
                     min="1"
-                    max={availableCommission}
+                    max={withdrawSource === "salary" ? salaryBalance : availableCommission}
                     placeholder="0.00"
                     value={withdrawAmount}
                     onChange={(e) => setWithdrawAmount(e.target.value)}

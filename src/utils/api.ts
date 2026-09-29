@@ -4,6 +4,7 @@ import type {
   BankDetail,
   Client,
   ClientTransaction,
+  CommissionTransaction,
   InvestmentPlan,
   LedgerWallet,
   Paginated,
@@ -318,10 +319,10 @@ export const api = {
   },
 
   // ─── Payouts (withdrawals) ──────────────────────────────────────────────────
-  createWithdrawal: async ({ amount, currency, walletId, note }: WithdrawalPayload) => {
+  createWithdrawal: async ({ amount, currency, walletId, note, fundSource }: WithdrawalPayload & { fundSource?: "commission" | "salary" }) => {
     return await apiFetch<{ data?: Withdrawal }>("/withdrawals", {
       method: "POST",
-      body: JSON.stringify({ amount, currency, withdrawalMethod: "wallet", walletId, note }),
+      body: JSON.stringify({ amount, currency, withdrawalMethod: "wallet", walletId, note, fundSource }),
     });
   },
 
@@ -331,6 +332,27 @@ export const api = {
     params.set("limit", String(limit));
     if (status) params.set("status", status);
     return await apiFetch<{ data?: Paginated<Withdrawal> }>(`/withdrawals/my?${params.toString()}`);
+  },
+
+  getMySalaryBalance: async () => apiFetch<{ data?: { availableSalaryBalance?: number } }>("/agent/me/salary-balance"),
+
+  // ─── Commission ledger (agent self-service) ─────────────────────────────────
+  getMyCommissionTransactions: async ({
+    page = 1,
+    limit = 20,
+    status,
+    search,
+    dateFrom,
+    dateTo,
+  }: ListParams & { dateFrom?: string; dateTo?: string } = {}) => {
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("limit", String(limit));
+    if (status && status !== "all") params.set("status", status);
+    if (search) params.set("search", search);
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+    return await apiFetch<{ data?: Paginated<CommissionTransaction> & { totals?: { credited: number; pending: number } } }>(`/agent/me/commission-transactions?${params.toString()}`);
   },
 
   // ─── Investment Plans ──────────────────────────────────────────────────────

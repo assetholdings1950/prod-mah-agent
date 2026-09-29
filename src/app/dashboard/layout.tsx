@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import {
-  TrendingUp, Users, Layers, Wallet, LogOut, Copy, Check, Menu, X, Award, ShieldCheck, Mail, ChevronRight, Activity, User, Settings, ChevronDown, GitBranch, MessageSquare, Headset
+  TrendingUp, Users, Layers, Wallet, LogOut, Copy, Check, Menu, X, Award, ShieldCheck, Mail, ChevronRight, Activity, User, Settings, ChevronDown, GitBranch, MessageSquare, Headset, ReceiptText
 } from "lucide-react";
 import { api, apiFetch, getTokens, setCurrentUser } from "../../utils/api";
 import { AgentContext } from "../../components/AgentContext";
@@ -131,6 +131,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { name: "Referral Agents", href: "/dashboard/agent", icon: GitBranch },
     { name: "Client Messages", href: "/dashboard/conversations", icon: MessageSquare },
     { name: "Compare Plans", href: "/dashboard/compare", icon: Layers },
+    { name: "Commission Transactions", href: "/dashboard/commissions", icon: ReceiptText },
     { name: "Payout Settlements", href: "/dashboard/payouts", icon: Wallet },
     { name: "My Profile", href: "/dashboard/profile", icon: User },
   ];

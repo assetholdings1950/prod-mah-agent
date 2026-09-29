@@ -1,9 +1,9 @@
-// Commission Tiers (SIP) — display source of truth for the agent portal.
+// Commission tiers — display source of truth for the agent portal.
 //
 // Agent commission on a SIP (monthly) sale is set by the *amount* of that
 // individual sale. This table mirrors prod-mah-be/config/commissionTiers.js —
 // keep the two in sync when editing. The dashboard renders its
-// "Commission Tiers (SIP)" panel straight from this array.
+// "Commission Tiers" panel straight from this array.
 
 import type { AgentLevel } from "@/types";
 

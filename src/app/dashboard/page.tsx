@@ -751,14 +751,14 @@ export default function DashboardPage() {
               <div className="border-t border-slate-100 pt-3 mt-3">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="block text-[9px] uppercase font-bold text-navy/40 tracking-wider">
-                    Commission Tiers (SIP)
+                    Commission Tiers
                   </span>
                   <span className="text-[10px] font-bold text-navy bg-navy/5 px-2 py-0.5 rounded border border-navy/10">
                     Your Tier: {commissionPercentage}
                   </span>
                 </div>
                 <p className="text-[10px] text-navy-light/50 font-light mb-2">
-                  Rate is set by the amount of each individual SIP sale.
+                  Your assigned policy rate applies to each completed client investment.
                 </p>
                 <div className="space-y-1.5 text-[11px] font-semibold text-navy">
                   {SIP_COMMISSION_TIERS.map((tier) => (
